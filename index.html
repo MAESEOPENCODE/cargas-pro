@@ -2240,6 +2240,14 @@ tr:hover td {
   <select id="fGrupo" onchange="render()"><option value="">Todos los clientes</option></select>
   <select id="fMuelle" onchange="render()"><option value="">Todos los muelles</option></select>
   <select id="fProducto" onchange="render()"><option value="">Todos los productos</option></select>
+  <select id="fFase" onchange="render()">
+    <option value="">Todas las fases</option>
+    <option value="botella">🍾 Botella</option>
+    <option value="llenado">🧃 Llenado</option>
+    <option value="esperando_etiquetado">🧃 Sin etiquetar</option>
+    <option value="etiquetado">🧃 Etiquetado (sin encajar)</option>
+    <option value="encajado">🧃 Encajado/Paletizado</option>
+  </select>
   <input type="date" id="fFechaDesde" onchange="filtroHoyActivo=false;filtroMañanaActivo=false;resetHoyBtn();resetMañanaBtn();render()">
   <input type="date" id="fFechaHasta" onchange="filtroHoyActivo=false;filtroMañanaActivo=false;resetHoyBtn();resetMañanaBtn();render()">
 </div>
@@ -2342,6 +2350,11 @@ tr:hover td {
       </div>
       <!-- Producto -->
       <div class="vr-producto" id="vr-producto"></div>
+      <!-- Historial de cargas parciales -->
+      <div id="vr-cargas-block" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border2)">
+        <div class="vr-info-label" style="margin-bottom:6px">🚛 Historial de cargas</div>
+        <div id="vr-cargas-list" style="display:flex;flex-direction:column;gap:6px"></div>
+      </div>
     </div>
     <div id="vr-footer">
       <button id="vr-back" onclick="cerrarVistaRapida()">← Atrás</button>
@@ -2466,6 +2479,22 @@ tr:hover td {
             <option value="cargado">🟢 Cargado</option>
           </select>
         </div>
+        <div class="fg"><label>🏭 Tipo de línea</label>
+          <select id="f-tipolinea" onchange="toggleFaseBrik()">
+            <option value="botella">🍾 Botella (línea continua)</option>
+            <option value="brik">🧃 Brik (multi-fase)</option>
+          </select>
+        </div>
+      </div>
+      <div class="fgrid full" id="bloque-fase-brik" style="display:none;margin-top:10px">
+        <div class="fg"><label>📍 Fase de producción</label>
+          <select id="f-fase">
+            <option value="llenado">1️⃣ Llenado</option>
+            <option value="esperando_etiquetado">2️⃣ Esperando etiquetado</option>
+            <option value="etiquetado">3️⃣ Etiquetado</option>
+            <option value="encajado">4️⃣ Encajado / Paletizado</option>
+          </select>
+        </div>
       </div>
       <div class="fgrid full" style="margin-top:10px">
         <div class="fg"><label>Notas</label><textarea id="f-notas" placeholder="Observaciones..."></textarea></div>
@@ -2490,12 +2519,23 @@ tr:hover td {
     </div>
     <div class="modal-scroll">
       <div class="fsec">Datos de la carga</div>
-      <div class="fgrid">
+      <div class="fgrid full">
+        <div class="fg">
+          <label>📦 Palets en esta carga</label>
+          <input id="c-palets" type="number" min="0" inputmode="numeric" placeholder="0" oninput="actualizarRestanteCarga()">
+          <div id="c-palets-info" style="font-size:11px;color:var(--t3);margin-top:5px;line-height:1.4"></div>
+        </div>
+      </div>
+      <div class="fgrid" style="margin-top:10px">
         <div class="fg"><label>⏰ Hora de carga</label><input type="time" id="c-hora"></div>
         <div class="fg"><label>🚪 Muelle</label><input id="c-muelle" placeholder="Muelle 1" list="dl-muelles2" autocomplete="off"><datalist id="dl-muelles2"></datalist></div>
       </div>
       <div class="fgrid full" style="margin-top:10px">
         <div class="fg"><label>🚚 Transportista</label><input id="c-transportista" placeholder="Nombre transportista" list="dl-trans2" autocomplete="off"><datalist id="dl-trans2"></datalist></div>
+      </div>
+      <div class="fgrid" style="margin-top:10px">
+        <div class="fg"><label>🚛 Tractora</label><input id="c-mat1" placeholder="4854-MJT" style="text-transform:uppercase" autocomplete="off"></div>
+        <div class="fg"><label>🔗 Remolque</label><input id="c-mat2" placeholder="R-6506-BDT" style="text-transform:uppercase" autocomplete="off"></div>
       </div>
       <div class="fsec" style="margin-top:14px">🟫 Euros (movimiento)</div>
       <div class="fgrid">
@@ -2942,7 +2982,7 @@ function updateLists() {
   const prods   = [...new Set(pedidos.map(p=>p.producto).filter(Boolean))];
   const baseG = ['EUROGROUP','AMPLUS','IBERIANA','LLOMBART','FRUVA','SOCOMO'];
   document.getElementById('dl-grupos').innerHTML = [...new Set([...baseG,...grupos])].map(g=>`<option value="${g}">`).join('');
-  const baseP = ['NARANJA','ESPARRAGO','SANDIA'];
+  const baseP = ['NARANJA','ESPARRAGO','SANDIA','GAZPACHO','SALMOREJO','MAYONESA','SALSA DE QUESO','SALSA BRAVA'];
   document.getElementById('dl-productos').innerHTML = [...new Set([...baseP,...prods])].map(p=>`<option value="${p}">`).join('');
   const baseM = ['1','2','3','4'];
   const allM = [...new Set([...baseM,...muelles])];
@@ -2989,6 +3029,7 @@ function render() {
   const gf = document.getElementById('fGrupo').value;
   const mf = document.getElementById('fMuelle').value;
   const pf = document.getElementById('fProducto').value;
+  const ff = document.getElementById('fFase').value;
   const fd = document.getElementById('fFechaDesde').value;
   const fh = document.getElementById('fFechaHasta').value;
 
@@ -3000,8 +3041,9 @@ function render() {
       const txt=[p.num,p.grupo,p.producto,p.ref,p.mat1,p.mat2,p.notas,p.pais,p.muelle,p.transportista].join(' ').toLowerCase();
       const dc = cargDay(p);
       const fechaOk = (!fd || (dc && dc >= fd)) && (!fh || (dc && dc <= fh));
+      const faseOk = !ff || (ff==='botella' ? p.tipoLinea!=='brik' : p.faseBrik===ff);
       return p.status==='cargado' && dc && dc < hoy
-        && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fechaOk;
+        && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fechaOk;
     });
     document.getElementById('countLbl').textContent = filtered.length + ' pedido'+(filtered.length!==1?'s':'');
     if (activeView==='table') { renderTable(filtered); return; }
@@ -3026,7 +3068,8 @@ function render() {
     } else {
       statusOk = p.status===ts;
     }
-    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fechaOk;
+    const faseOk = !ff || (ff==='botella' ? p.tipoLinea!=='brik' : p.faseBrik===ff);
+    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fechaOk;
   });
   document.getElementById('countLbl').textContent = filtered.length + ' pedido'+(filtered.length!==1?'s':'');
   if (activeView==='table') { renderTable(filtered); return; }
@@ -3069,13 +3112,13 @@ function cardHtmlHistorico(p) {
   return `<div class="pedido-card status-${p.status}" style="opacity:.88">
     <div class="pedido-top">
       <div class="pedido-top-row1">${p.num?`<span class="pedido-num">#${p.num}</span>`:''}<span class="pedido-empresa">${p.grupo||'—'}</span></div>
-      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span><span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span style="font-size:9px;font-family:var(--font-mono);color:#9575CD;background:#EDE7F6;padding:2px 7px;border-radius:10px;letter-spacing:.3px">HISTÓRICO</span><button class="tbl-btn tbl-edit" data-action="edit-hist" data-id="${p.id}" title="Corregir datos" style="font-size:13px;padding:3px 7px">✏️</button></span></div>
+      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span>${lineaBadgeHtml(p)}<span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span style="font-size:9px;font-family:var(--font-mono);color:#9575CD;background:#EDE7F6;padding:2px 7px;border-radius:10px;letter-spacing:.3px">HISTÓRICO</span><button class="tbl-btn tbl-edit" data-action="edit-hist" data-id="${p.id}" title="Corregir datos" style="font-size:13px;padding:3px 7px">✏️</button></span></div>
     </div>
     <div class="pedido-body">
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${p.uds?`<div class="info-block sm"><div class="info-label">Palets</div><span class="tag tag-palets">${p.uds}</span></div>`:''}
+        ${paletsInfoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
@@ -3124,6 +3167,18 @@ function renderCards(filtered) {
   document.getElementById('listArea').innerHTML=html;
 }
 
+// Progreso de palets cargados vs. total del pedido (soporta cargas parciales)
+function paletsInfoHtml(p) {
+  const total = parseInt(p.uds)||0;
+  if (!total) return p.uds?`<div class="info-block sm"><div class="info-label">Palets</div><span class="tag tag-palets">${p.uds}</span></div>`:'';
+  const cargados = parseInt(p.udsCargados)||0;
+  if (cargados<=0) return `<div class="info-block sm"><div class="info-label">Palets</div><span class="tag tag-palets">${total}</span></div>`;
+  const restante = Math.max(total-cargados,0);
+  let html = `<div class="info-block sm"><div class="info-label">Palets</div><span class="tag tag-palets">${cargados}/${total}</span></div>`;
+  if (restante>0) html += `<div class="info-block sm"><div class="info-label">📦 Restante</div><span class="tag" style="background:#FFE0B2;color:#8A4B00;border-color:#FFCC80">${restante}</span></div>`;
+  return html;
+}
+
 // Renderiza filas adicionales de info-row para los productos extra de un pedido (multi-producto)
 function productosExtraHtml(p) {
   const extra = p.productosExtra||[];
@@ -3148,19 +3203,22 @@ function cardHtml(p, esCamionCompartido=false) {
   const terminarBtn = (p.status==='pendiente'||p.status==='revision')
     ? `<button class="tbl-btn" data-action="terminar" data-id="${eid}" title="Marcar como terminado" style="background:rgba(0,80,179,0.10);color:var(--sap-blue);border-color:rgba(0,80,179,0.25)">✅</button>`
     : '';
+  const avanzarFaseBtn = (p.tipoLinea==='brik' && p.faseBrik!=='encajado' && p.status!=='cargado')
+    ? `<button class="tbl-btn" data-action="avanzar-fase" data-id="${eid}" title="Avanzar fase de producción" style="background:rgba(122,91,0,0.10);color:#7A5B00;border-color:rgba(122,91,0,0.25)">▶️</button>`
+    : '';
   const actions=p.status==='cargado'
     ?`<button class="tbl-btn tbl-edit" data-action="edit" data-id="${eid}" title="Editar">✏️</button><button class="tbl-btn tbl-reabrir" data-action="reabrir" data-id="${eid}" title="Reabrir">↩️</button><button class="tbl-btn tbl-del" data-action="del" data-id="${eid}" title="Eliminar">🗑️</button>`
-    :`<button class="tbl-btn tbl-edit" data-action="edit" data-id="${eid}" title="Editar">✏️</button>${terminarBtn}<button class="tbl-btn tbl-cargar" data-action="cargar" data-id="${eid}" title="Cargar">🚛</button><button class="tbl-btn tbl-del" data-action="del" data-id="${eid}" title="Eliminar">🗑️</button>`;
+    :`<button class="tbl-btn tbl-edit" data-action="edit" data-id="${eid}" title="Editar">✏️</button>${avanzarFaseBtn}${terminarBtn}<button class="tbl-btn tbl-cargar" data-action="cargar" data-id="${eid}" title="Cargar">🚛</button><button class="tbl-btn tbl-del" data-action="del" data-id="${eid}" title="Eliminar">🗑️</button>`;
   return `<div class="pedido-card status-${p.status}${esCamionCompartido?' camion-compartido':''}">
     <div class="pedido-top">
       <div class="pedido-top-row1">${p.num?`<span class="pedido-num">#${p.num}</span>`:''}<span class="pedido-empresa">${p.grupo||'—'}</span></div>
-      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span><span style="margin-left:auto;display:flex;gap:3px;flex-shrink:0">${actions}</span></div>
+      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span>${lineaBadgeHtml(p)}<span style="margin-left:auto;display:flex;gap:3px;flex-shrink:0">${actions}</span></div>
     </div>
     <div class="pedido-body">
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${p.uds?`<div class="info-block sm"><div class="info-label">Palets</div><span class="tag tag-palets">${p.uds}</span></div>`:''}
+        ${paletsInfoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
@@ -3261,6 +3319,7 @@ document.addEventListener('click', function(e) {
   if (action === 'edit')    openPedidoModal(id);
   if (action === 'edit-hist') openPedidoModalHist(id);
   if (action === 'terminar') terminarPedido(id);
+  if (action === 'avanzar-fase') avanzarFase(id);
   if (action === 'cargar')  openCargarModal(id);
   if (action === 'del')     delPedido(id);
   if (action === 'reabrir') reabrir(id);
@@ -3290,6 +3349,9 @@ function openPedidoModal(idOrNull) {
     const ar=document.getElementById('aduana-arrow'); if(ar) ar.style.transform='';
   }
   document.getElementById('f-status').value = p?.status||'pendiente';
+  document.getElementById('f-tipolinea').value = p?.tipoLinea||'botella';
+  document.getElementById('f-fase').value = p?.faseBrik||'llenado';
+  toggleFaseBrik();
   document.getElementById('f-fecha').value  = p?.fecha||new Date().toISOString().slice(0,10);
   // Restaurar checkbox "Sin intercambio" y el campo albarán
   const sinIntEl = document.getElementById('f-sin-intercambio');
@@ -3331,6 +3393,8 @@ function duplicarPedido() {
       copia.sinIntercambio = false;
       copia.ec      = 0;
       copia.ed      = 0;
+      copia.udsCargados = 0;
+      copia.cargasHistorial = [];
       // Abrir modal como nuevo pedido con los datos de la copia
       editId = null;
       document.getElementById('mPedidoTitle').textContent = '📦 Nuevo pedido (copia)';
@@ -3345,6 +3409,9 @@ function duplicarPedido() {
       });
       document.getElementById('f-fecha').value   = copia.fecha;
       document.getElementById('f-status').value  = copia.status;
+      document.getElementById('f-tipolinea').value = copia.tipoLinea||'botella';
+      document.getElementById('f-fase').value = copia.faseBrik||'llenado';
+      toggleFaseBrik();
       const sinIntEl = document.getElementById('f-sin-intercambio');
       if (sinIntEl) sinIntEl.checked = false;
       const albaranEl = document.getElementById('f-albaran-pedido');
@@ -3521,6 +3588,32 @@ function cargarProductosExtra(productosExtra) {
 window.addProductoExtra = addProductoExtra;
 window.removeProductoExtra = removeProductoExtra;
 
+// ══ TIPO DE LÍNEA (Brik multi-fase vs Botella línea continua) ══
+function toggleFaseBrik() {
+  const tipoEl = document.getElementById('f-tipolinea');
+  const bloque = document.getElementById('bloque-fase-brik');
+  if (!tipoEl || !bloque) return;
+  bloque.style.display = tipoEl.value === 'brik' ? '' : 'none';
+}
+window.toggleFaseBrik = toggleFaseBrik;
+
+const FASE_BRIK_LABEL = {
+  llenado: '1️⃣ Llenado',
+  esperando_etiquetado: '2️⃣ Esp. etiquetado',
+  etiquetado: '3️⃣ Etiquetado',
+  encajado: '4️⃣ Encajado/Palet.'
+};
+
+// Badge de tipo de línea + fase, usado en las tarjetas de pedido
+function lineaBadgeHtml(p) {
+  if (!p.tipoLinea) return '';
+  if (p.tipoLinea === 'brik') {
+    const faseTxt = FASE_BRIK_LABEL[p.faseBrik] || '';
+    return `<span class="tag" style="background:#FFF3CD;color:#7A5B00;border-color:#FFE69C;white-space:nowrap">🧃 Brik${faseTxt?' · '+faseTxt:''}</span>`;
+  }
+  return `<span class="tag" style="background:#E0F2FE;color:#075985;border-color:#BAE6FD;white-space:nowrap">🍾 Botella</span>`;
+}
+
 function checkRefDuplicado() {
   const ref = document.getElementById('f-ref').value.trim();
   const warn = document.getElementById('ref-dup-warn');
@@ -3547,6 +3640,8 @@ async function savePedido() {
     hora_salida:document.getElementById('f-hora-salida').value,
     muelle:get('f-muelle'), transportista:get('f-transportista'),
     status:document.getElementById('f-status').value,
+    tipoLinea: document.getElementById('f-tipolinea')?.value || 'botella',
+    faseBrik: (document.getElementById('f-tipolinea')?.value === 'brik') ? (document.getElementById('f-fase')?.value || 'llenado') : '',
     fecha:document.getElementById('f-fecha').value,
     notas:get('f-notas'),
     ec: parseInt(get('f-ec'))||0,
@@ -3598,6 +3693,9 @@ function limpiarPedidoModal() {
     const fHora = document.getElementById('f-hora'); if(fHora) fHora.value='';
     const fHoraSalida = document.getElementById('f-hora-salida'); if(fHoraSalida) fHoraSalida.value='';
     document.getElementById('f-status').value='pendiente';
+    document.getElementById('f-tipolinea').value='botella';
+    document.getElementById('f-fase').value='llenado';
+    toggleFaseBrik();
     document.getElementById('f-fecha').value=new Date().toISOString().slice(0,10);
   });
 }
@@ -3609,8 +3707,16 @@ function openCargarModal(id) {
   document.getElementById('c-hora').value=p.hora||new Date().toTimeString().slice(0,5);
   document.getElementById('c-muelle').value=p.muelle||'';
   document.getElementById('c-transportista').value=p.transportista||'';
+  document.getElementById('c-mat1').value=p.mat1||'';
+  document.getElementById('c-mat2').value=p.mat2||'';
   document.getElementById('c-notas').value='';
   document.getElementById('c-hora-salida').value=new Date().toTimeString().slice(0,5);
+  // Palets: por defecto se propone el restante pendiente de cargar
+  const totalPed = parseInt(p.uds)||0;
+  const yaCargados = parseInt(p.udsCargados)||0;
+  const restantePed = totalPed>0 ? Math.max(totalPed-yaCargados,0) : 0;
+  document.getElementById('c-palets').value = totalPed>0 ? restantePed : (p.uds||'');
+  actualizarRestanteCarga();
   // EC se autorrellena con EUROPALETS del pedido si no tiene EC propio
   document.getElementById('c-ec').value = p.ec || p.europalets || '';
   document.getElementById('c-ed').value = p.ed||'';
@@ -3618,6 +3724,19 @@ function openCargarModal(id) {
   setTimeout(()=>{ document.querySelector('#mCargar .modal-scroll').scrollTop=0; },50);
 }
 function closeCargarModal() { document.getElementById('mCargar').classList.remove('open'); cargarId=null; }
+
+function actualizarRestanteCarga() {
+  const info = document.getElementById('c-palets-info');
+  if (!info) return;
+  const p = pedidos.find(x=>String(x.id)===String(cargarId));
+  const totalPed = p ? (parseInt(p.uds)||0) : 0;
+  if (!totalPed) { info.textContent = ''; return; }
+  const yaCargados = p ? (parseInt(p.udsCargados)||0) : 0;
+  const estaCarga = parseInt(document.getElementById('c-palets').value)||0;
+  const restanteTrasEsta = Math.max(totalPed - yaCargados - estaCarga, 0);
+  info.innerHTML = `Pedido: <b>${totalPed}</b> palets · Ya cargados: <b>${yaCargados}</b> · Tras esta carga quedarán: <b style="color:${restanteTrasEsta>0?'var(--status-rev)':'var(--status-load)'}">${restanteTrasEsta}</b>`;
+}
+window.actualizarRestanteCarga = actualizarRestanteCarga;
 
 async function confirmarCarga() {
   const p=pedidos.find(x=>String(x.id)===String(cargarId)); if(!p) return;
@@ -3637,12 +3756,38 @@ async function confirmarCarga() {
     if(!cont){ window._tmpCancelCarga=null; return; }
     window._tmpCancelCarga=null;
   }
-  const updated={...p, status:'cargado',
-    cargadoAt: new Date().toISOString().slice(0,10),
+  // Palets: si el pedido tiene un total (uds) se controla el stock restante;
+  // si no tiene uds definido, se conserva el comportamiento anterior (carga completa)
+  const totalPed = parseInt(p.uds)||0;
+  const yaCargados = parseInt(p.udsCargados)||0;
+  const estaCarga = parseInt(document.getElementById('c-palets').value)||0;
+  const nuevoTotalCargado = totalPed>0 ? Math.min(yaCargados+estaCarga, totalPed) : (yaCargados+estaCarga);
+  const completo = totalPed>0 ? nuevoTotalCargado >= totalPed : true;
+  const restante = totalPed>0 ? Math.max(totalPed-nuevoTotalCargado, 0) : 0;
+
+  const mat1Carga = document.getElementById('c-mat1').value.trim().toUpperCase();
+  const mat2Carga = document.getElementById('c-mat2').value.trim().toUpperCase();
+
+  const registroCarga = {
+    fecha: new Date().toISOString().slice(0,10),
+    palets: estaCarga,
+    hora: document.getElementById('c-hora').value,
+    hora_salida: document.getElementById('c-hora-salida').value,
+    muelle: document.getElementById('c-muelle').value.trim(),
+    transportista: document.getElementById('c-transportista').value.trim(),
+    mat1: mat1Carga, mat2: mat2Carga
+  };
+
+  const updated={...p,
+    status: completo ? 'cargado' : p.status,
+    udsCargados: nuevoTotalCargado,
+    cargasHistorial: [...(p.cargasHistorial||[]), registroCarga],
+    ...(completo ? {cargadoAt: new Date().toISOString().slice(0,10)} : {}),
     hora:document.getElementById('c-hora').value,
     hora_salida:document.getElementById('c-hora-salida').value,
     muelle:document.getElementById('c-muelle').value.trim(),
     transportista:document.getElementById('c-transportista').value.trim(),
+    mat1: mat1Carga, mat2: mat2Carga,
     ec: ec, ed: ed
   };
   const n2=document.getElementById('c-notas').value.trim();
@@ -3650,16 +3795,25 @@ async function confirmarCarga() {
   closeCargarModal();
   await fbSave(updated);
   await syncMovimientoDePedido(updated);
-  toast(`🟢 Carga confirmada${ec||ed?` · EC:${ec} ED:${ed}`:''}`);
+  if (!completo && totalPed>0) {
+    toast(`🟡 Carga parcial registrada (${estaCarga} pal.) · Restante: ${restante} pal.`);
+  } else {
+    toast(`🟢 Carga confirmada${ec||ed?` · EC:${ec} ED:${ed}`:''}`);
+  }
 }
 
-function limpiarCargarModal() { ['c-hora','c-hora-salida','c-muelle','c-transportista','c-notas','c-ec','c-ed'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';}); }
+function limpiarCargarModal() { ['c-hora','c-hora-salida','c-muelle','c-transportista','c-notas','c-ec','c-ed','c-palets','c-mat1','c-mat2'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';}); const info=document.getElementById('c-palets-info'); if(info) info.textContent=''; }
 
 function reabrir(id) {
-  confirm2('↩️','¿Reabrir pedido?','Volverá al estado Confección','Reabrir','blue',async()=>{
+  const p0=pedidos.find(x=>String(x.id)===String(id));
+  const teniaCargas = p0 && (p0.udsCargados>0 || (p0.cargasHistorial||[]).length>0);
+  const msg = teniaCargas
+    ? 'Volverá al estado Confección. Se reiniciará el contador de palets cargados (' + (p0.udsCargados||0) + ') y el historial de cargas de este pedido.'
+    : 'Volverá al estado Confección';
+  confirm2('↩️','¿Reabrir pedido?',msg,'Reabrir','blue',async()=>{
     const p=pedidos.find(x=>String(x.id)===String(id)); if(!p) return;
-    await fbSave({...p, status:'pendiente'});
-    toast('↩️ Pedido reabierto');
+    await fbSave({...p, status:'pendiente', udsCargados:0, cargasHistorial:[]});
+    toast('↩️ Pedido reabierto' + (teniaCargas?' · Cargas reiniciadas':''));
   });
 }
 
@@ -3668,6 +3822,18 @@ function terminarPedido(id) {
   fbSave({...p, status:'terminado'});
   toast('✅ Pedido marcado como Terminado');
 }
+
+// Avanza la fase de producción de un pedido tipo Brik (Llenado → Esp. etiquetado → Etiquetado → Encajado)
+const ORDEN_FASE_BRIK = ['llenado','esperando_etiquetado','etiquetado','encajado'];
+function avanzarFase(id) {
+  const p=pedidos.find(x=>String(x.id)===String(id)); if(!p||p.tipoLinea!=='brik') return;
+  const i = ORDEN_FASE_BRIK.indexOf(p.faseBrik||'llenado');
+  if (i === -1 || i >= ORDEN_FASE_BRIK.length-1) { toast('🧃 Ya está en la última fase (Encajado/Paletizado)'); return; }
+  const nuevaFase = ORDEN_FASE_BRIK[i+1];
+  fbSave({...p, faseBrik: nuevaFase});
+  toast('🧃 Fase actualizada: ' + (FASE_BRIK_LABEL[nuevaFase]||nuevaFase));
+}
+window.avanzarFase = avanzarFase;
 
 
 function delPedido(id) {
@@ -3767,6 +3933,7 @@ function _getFilteredPedidos() {
   const gf = document.getElementById('fGrupo').value;
   const mf = document.getElementById('fMuelle').value;
   const pf = document.getElementById('fProducto').value;
+  const ff = document.getElementById('fFase').value;
   const fd = document.getElementById('fFechaDesde').value;
   const fh = document.getElementById('fFechaHasta').value;
   const hoy = new Date().toISOString().slice(0,10);
@@ -3774,13 +3941,14 @@ function _getFilteredPedidos() {
   const ts = sm[activeTab];
   return pedidos.filter(p=>{
     const txt=[p.num,p.grupo,p.producto,p.ref,p.mat1,p.mat2,p.notas,p.pais,p.muelle,p.transportista].join(' ').toLowerCase();
-    if(activeTab==='historico'){ const dc=cargDay(p); const fOk=(!fd||(dc&&dc>=fd))&&(!fh||(dc&&dc<=fh)); return p.status==='cargado' && dc && dc < hoy && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fOk; }
+    const faseOk = !ff || (ff==='botella' ? p.tipoLinea!=='brik' : p.faseBrik===ff);
+    if(activeTab==='historico'){ const dc=cargDay(p); const fOk=(!fd||(dc&&dc>=fd))&&(!fh||(dc&&dc<=fh)); return p.status==='cargado' && dc && dc < hoy && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fOk; }
     const fechaOk = (!fd||(p.fecha&&p.fecha>=fd))&&(!fh||(p.fecha&&p.fecha<=fh));
     let statusOk;
     if(activeTab==='todos') statusOk = !(p.status==='cargado' && cargDay(p) && cargDay(p) < hoy);
     else if(activeTab==='cargados') statusOk = p.status==='cargado' && (!cargDay(p) || cargDay(p) >= hoy);
     else statusOk = p.status===ts;
-    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fechaOk;
+    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fechaOk;
   });
 }
 
@@ -5086,6 +5254,24 @@ function repararApp() {
     const pp = document.getElementById('vr-producto');
     pp.textContent   = p.producto || '';
     pp.style.display = p.producto ? '' : 'none';
+
+    // Historial de cargas parciales
+    const cargasBlk  = document.getElementById('vr-cargas-block');
+    const cargasList = document.getElementById('vr-cargas-list');
+    const historial  = p.cargasHistorial || [];
+    if (historial.length) {
+      cargasList.innerHTML = historial.map((c, i) => {
+        const matTxt = [c.mat1, c.mat2].filter(Boolean).join(' · ');
+        const detalle = [c.hora, c.muelle?'Muelle '+c.muelle:'', c.transportista, matTxt].filter(Boolean).join(' · ');
+        return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px">
+          <div><b>${c.palets} pal.</b>${detalle?' · '+detalle:''}</div>
+          <div style="color:var(--t3);font-family:var(--font-mono);font-size:11px">${c.fecha||''}</div>
+        </div>`;
+      }).join('');
+      cargasBlk.style.display = '';
+    } else {
+      cargasBlk.style.display = 'none';
+    }
 
     document.getElementById('vr-bg').classList.add('open');
     if (navigator.vibrate) navigator.vibrate(40);

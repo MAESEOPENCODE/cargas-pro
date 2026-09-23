@@ -2454,20 +2454,29 @@ tr:hover td {
           <input id="f-albaran-pedido" placeholder="Ej: A26/1765" autocomplete="off" style="font-family:var(--font-mono);letter-spacing:.5px">
         </div>
       </div>
-      <!-- ══ LÍNEAS DE PEDIDO (colapsable) ══ -->
-      <div class="fsec fsec-toggle" id="fsec-aduana" onclick="toggleAduana()" style="cursor:pointer;user-select:none;justify-content:space-between">
-        <span>&#9776; LÍNEAS DE PEDIDO</span>
-        <span id="aduana-arrow" style="font-size:12px;transition:transform .2s;color:#F5A623">&#9660;</span>
+      <!-- ══ INTERRUPTOR: ¿lleva líneas de pedido? ══ -->
+      <div class="fgrid full" style="margin-top:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2);cursor:pointer;padding:4px 0">
+          <input type="checkbox" id="f-usa-lineas" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer" onchange="toggleUsaLineas()">
+          <span>📑 Mostrar líneas de pedido (aduana / exportación)</span>
+        </label>
       </div>
-      <div id="bloque-aduana" style="display:none">
-        <!-- datalists compartidos para memoria -->
-        <datalist id="dl-marcas"></datalist>
-        <datalist id="dl-bultos"></datalist>
-        <datalist id="dl-embalaje"></datalist>
-        <datalist id="dl-naturaleza"></datalist>
-        <datalist id="dl-nestadistico"></datalist>
-        <div id="lineas-container"></div>
-        <button type="button" onclick="addLineaPedido()" style="margin-top:8px;width:100%;padding:10px;border:2px dashed var(--border2);border-radius:var(--r-sm);background:var(--surface2);color:var(--t2);font-family:var(--font-body);font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;transition:all .15s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--t2)'">＋ Añadir línea</button>
+      <div id="bloque-lineas-wrap" style="display:none">
+        <!-- ══ LÍNEAS DE PEDIDO (colapsable) ══ -->
+        <div class="fsec fsec-toggle" id="fsec-aduana" onclick="toggleAduana()" style="cursor:pointer;user-select:none;justify-content:space-between">
+          <span>&#9776; LÍNEAS DE PEDIDO</span>
+          <span id="aduana-arrow" style="font-size:12px;transition:transform .2s;color:#F5A623">&#9660;</span>
+        </div>
+        <div id="bloque-aduana" style="display:none">
+          <!-- datalists compartidos para memoria -->
+          <datalist id="dl-marcas"></datalist>
+          <datalist id="dl-bultos"></datalist>
+          <datalist id="dl-embalaje"></datalist>
+          <datalist id="dl-naturaleza"></datalist>
+          <datalist id="dl-nestadistico"></datalist>
+          <div id="lineas-container"></div>
+          <button type="button" onclick="addLineaPedido()" style="margin-top:8px;width:100%;padding:10px;border:2px dashed var(--border2);border-radius:var(--r-sm);background:var(--surface2);color:var(--t2);font-family:var(--font-body);font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;transition:all .15s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--t2)'">＋ Añadir línea</button>
+        </div>
       </div>
       <div class="fsec">Estado y notas</div>
       <div class="fgrid">
@@ -3341,6 +3350,8 @@ function openPedidoModal(idOrNull) {
   // Cargar líneas de pedido
   const lineas = p?.lineas||[];
   cargarLineasPedido(lineas);
+  document.getElementById('f-usa-lineas').checked = !!(p?.usaLineas || lineas.length > 0);
+  toggleUsaLineas();
   if(lineas.length > 0){
     const bl=document.getElementById('bloque-aduana'); if(bl) bl.style.display='';
     const ar=document.getElementById('aduana-arrow'); if(ar) ar.style.transform='rotate(180deg)';
@@ -3421,6 +3432,8 @@ function duplicarPedido() {
       // Líneas aduaneras y productos extra
       cargarLineasPedido(copia.lineas || []);
       cargarProductosExtra(copia.productosExtra || []);
+      document.getElementById('f-usa-lineas').checked = !!(copia.usaLineas || (copia.lineas||[]).length > 0);
+      toggleUsaLineas();
       if ((copia.lineas||[]).length > 0) {
         const bl = document.getElementById('bloque-aduana'); if(bl) bl.style.display='';
         const ar = document.getElementById('aduana-arrow'); if(ar) ar.style.transform='rotate(180deg)';
@@ -3458,6 +3471,21 @@ function actualizarVisibilidadAlbaran(){
   if(bloque) bloque.style.display = (ed > 0 || sinInt) ? '' : 'none';
 }
 window.actualizarVisibilidadAlbaran = actualizarVisibilidadAlbaran;
+
+// Muestra u oculta por completo la sección de líneas de pedido (aduana/exportación)
+function toggleUsaLineas() {
+  const chk  = document.getElementById('f-usa-lineas');
+  const wrap = document.getElementById('bloque-lineas-wrap');
+  if (!chk || !wrap) return;
+  wrap.style.display = chk.checked ? '' : 'none';
+  if (!chk.checked) {
+    // Al desactivar, se limpian las líneas para que no queden datos ocultos sin querer
+    cargarLineasPedido([]);
+    const bl=document.getElementById('bloque-aduana'); if(bl) bl.style.display='none';
+    const ar=document.getElementById('aduana-arrow'); if(ar) ar.style.transform='';
+  }
+}
+window.toggleUsaLineas = toggleUsaLineas;
 
 function toggleAduana() {
   const bloque = document.getElementById('bloque-aduana');
@@ -3647,6 +3675,7 @@ async function savePedido() {
     ec: parseInt(get('f-ec'))||0,
     ed: parseInt(get('f-ed'))||0,
     lineas: getLineasPedido(),
+    usaLineas: document.getElementById('f-usa-lineas')?.checked || false,
     productosExtra: getProductosExtra(),
   };
   if(!p.grupo){ toast('⚠️ Indica el cliente'); return; }
@@ -3686,6 +3715,8 @@ function limpiarPedidoModal() {
   confirm2('🗑','¿Limpiar formulario?','Se borrarán todos los campos','Limpiar','',()=>{
     ['num','grupo','producto','ref','uds','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
     cargarLineasPedido([]);
+    const usaLineasChk = document.getElementById('f-usa-lineas'); if(usaLineasChk) usaLineasChk.checked=false;
+    toggleUsaLineas();
     cargarProductosExtra([]);
     const sinInt = document.getElementById('f-sin-intercambio'); if(sinInt) sinInt.checked=false;
     const fAlb = document.getElementById('f-albaran-pedido'); if(fAlb) fAlb.value='';

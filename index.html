@@ -3832,7 +3832,7 @@ function actualizarAvisoStock() {
     .map(l => {
       const s = stockDisponible(l.articulo);
       const pc = planConsumo(l.articulo, l.pal, l.caj); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
-      return { ...l, s, falta };
+      const sinCpp = producciones.some(x => (x.articulo||'').trim().toUpperCase()===l.articulo.toUpperCase() && !(parseFloat(x.cajasPorPalet)>0)); return { ...l, s, falta, sinCpp };
     });
   if (!filas.length) { aviso.style.display = 'none'; return; }
   const hayFalta = filas.some(f => f.falta);
@@ -3840,7 +3840,7 @@ function actualizarAvisoStock() {
   aviso.style.background = hayFalta ? 'rgba(220,53,69,0.12)' : 'rgba(40,167,69,0.12)';
   aviso.style.color = hayFalta ? '#B02A37' : '#1E7E34';
   aviso.innerHTML = filas.map(f =>
-    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}": ${f.s.palets} pal. / ${f.s.cajas} cajas`
+    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}`
   ).join('<br>');
 }
 window.actualizarAvisoStock = actualizarAvisoStock;

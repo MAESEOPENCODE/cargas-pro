@@ -2416,8 +2416,11 @@ input[type=password],input[type=email]{text-transform:none}
       <div id="productos-container">
         <div class="producto-fila" data-idx="0">
           <div class="fgrid">
-            <div class="fg"><label>📦 Producto</label><input id="f-producto" placeholder="Naranja, Espárrago..." list="dl-productos" autocomplete="off" oninput="actualizarAvisoStock()"><datalist id="dl-productos"></datalist></div>
+            <div class="fg"><label>📦 Producto</label><input id="f-producto" placeholder="Naranja, Espárrago..." list="dl-productos" autocomplete="off" oninput="actualizarAvisoStock()"><datalist id="dl-productos"></datalist><datalist id="dl-formatos"></datalist></div>
             <div class="fg"><label>Palets</label><input id="f-uds" placeholder="10" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
+          </div>
+          <div class="fgrid full" style="margin-top:8px">
+            <div class="fg"><label>🍶 Formato</label><input id="f-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off" oninput="actualizarAvisoStock()"></div>
           </div>
           <div class="fgrid" style="margin-top:8px">
             <div class="fg"><label>📦 Cajas</label><input id="f-cajas" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
@@ -2719,6 +2722,9 @@ input[type=password],input[type=email]{text-transform:none}
         <div class="fg"><label>📦 Artículo</label><input id="pr-articulo" placeholder="Gazpacho, Salsa brava..." list="dl-productos" autocomplete="off"></div>
         <div class="fg"><label>🏷️ Marca</label><input id="pr-marca" placeholder="Marca" autocomplete="off"></div>
       </div>
+      <div class="fgrid full">
+        <div class="fg"><label>🍶 Formato</label><input id="pr-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off"></div>
+      </div>
       <div class="fgrid">
         <div class="fg"><label>🟧 Palets</label><input id="pr-palets" type="number" min="0" inputmode="numeric" placeholder="0"></div>
         <div class="fg"><label>📦 Cajas</label><input id="pr-cajas" type="number" min="0" inputmode="numeric" placeholder="0"></div>
@@ -2818,21 +2824,22 @@ function _dispLote(l) {
   return { palets:Math.max(P-pc,0), cajas:Math.max(C-cc,0), total:null, k:0 }; // lote antiguo sin cajas/palet
 }
 // Stock disponible de un artículo (palets completos + cajas sueltas)
-function stockDisponible(articulo) {
+function _fmtOk(l,f){ const a=(l.formato||'').trim().toUpperCase(), b=(f||'').trim().toUpperCase(); return !a||!b||a===b; }
+function stockDisponible(articulo, formato) {
   const key = (articulo||'').trim().toUpperCase();
   if (!key) return { palets: 0, cajas: 0 };
   let palets = 0, cajas = 0;
   producciones.forEach(l => {
-    if ((l.articulo||'').trim().toUpperCase() !== key) return;
+    if ((l.articulo||'').trim().toUpperCase() !== key || !_fmtOk(l,formato)) return;
     const d=_dispLote(l); palets+=d.palets; cajas+=d.cajas;
   });
   return { palets, cajas };
 }
 // Plan FIFO (caducidad más próxima): coge los palets pedidos y las cajas necesarias, rompiendo palet si hace falta
-function planConsumo(articulo, pal, caj) {
+function planConsumo(articulo, pal, caj, formato) {
   const key=(articulo||'').trim().toUpperCase();
   let rp=parseFloat(pal)||0, rc=parseFloat(caj)||0; const plan=[];
-  producciones.filter(l=>(l.articulo||'').trim().toUpperCase()===key)
+  producciones.filter(l=>(l.articulo||'').trim().toUpperCase()===key && _fmtOk(l,formato))
     .sort((a,b)=>(a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'))
     .forEach(l=>{
       if (rp<=0 && rc<=0) return;
@@ -2871,8 +2878,8 @@ async function fbDeleteProduccion(id) {
 }
 
 // Consume stock FIFO para un artículo. Devuelve [{id, lote, palets, cajas, caducidad}]
-async function consumirStock(articulo, palets, cajas) {
-  const { plan } = planConsumo(articulo, palets, cajas); const usados=[];
+async function consumirStock(articulo, palets, cajas, formato) {
+  const { plan } = planConsumo(articulo, palets, cajas, formato); const usados=[];
   for (const {l,up,uc} of plan) {
     await fbSaveProduccion({ ...l,
       paletsConsumidos:(parseFloat(l.paletsConsumidos)||0)+up,
@@ -3118,6 +3125,8 @@ function updateLists() {
   const allT = [...new Set([...baseT,...trans])];
   ['dl-trans','dl-trans2'].forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=allT.map(t=>`<option value="${t}">`).join(''); });
 
+  const _fmts=[...new Set([...pedidos.map(x=>x.formato),...pedidos.flatMap(x=>(x.productosExtra||[]).map(e=>e.formato)),...producciones.map(x=>x.formato),'BOTELLA 1 LT','BRICK 500'].map(v=>(v||'').trim().toUpperCase()).filter(Boolean))];
+  const _dlf=document.getElementById('dl-formatos'); if(_dlf) _dlf.innerHTML=_fmts.map(v=>`<option value="${v}">`).join('');
   const gs=document.getElementById('fGrupo'); const gv=gs.value;
   gs.innerHTML='<option value="">Todos los clientes</option>'+grupos.map(g=>`<option value="${g}"${g===gv?' selected':''}>${g}</option>`).join('');
   const ms=document.getElementById('fMuelle'); const mv=ms.value;
@@ -3232,7 +3241,7 @@ function cardHtmlHistorico(p) {
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}${formatoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
@@ -3293,6 +3302,9 @@ function paletsInfoHtml(p) {
   return html;
 }
 
+function formatoHtml(p) {
+  return p.formato ? `<div class="info-block sm"><div class="info-label">Formato</div><span class="tag tag-palets">${p.formato}</span></div>` : '';
+}
 function totalCajasHtml(p) {
   const t = parseInt(p.totalCajas)||0;
   return (p.cpp && t) ? `<div class="info-block sm"><div class="info-label">Total cajas</div><span class="tag tag-palets">${t}</span></div>` : '';
@@ -3327,7 +3339,7 @@ function productosExtraHtml(p) {
   if(!extra.length) return '';
   return extra.map(pe => `<div class="info-row">
         ${pe.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${pe.producto}</span></div>`:''}
-        ${_progresoExtraHtml(pe.uds, pe.udsCargados, 'Palets')}
+        ${formatoHtml(pe)}${_progresoExtraHtml(pe.uds, pe.udsCargados, 'Palets')}
         ${_progresoExtraHtml(pe.cajas, pe.cajasCargados, 'Cajas')}
         ${pe.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${pe.europalets}</span></div>`:''}
         ${pe.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${pe.pais}</span></div>`:''}
@@ -3361,7 +3373,7 @@ function cardHtml(p, esCamionCompartido=false) {
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}${formatoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
@@ -3453,7 +3465,7 @@ function openPedidoModal(idOrNull) {
   // Mostrar botón Copiar solo cuando se edita un pedido existente
   const btnCopiar = document.getElementById('btnCopiarPedido');
   if (btnCopiar) btnCopiar.style.display = p ? '' : 'none';
-  ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'].forEach(k => {
+  ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','formato','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'].forEach(k => {
     const fid = k==='hora_salida'?'f-hora-salida':'f-'+k;
     const el = document.getElementById(fid); if(el) el.value = p?.[k]||'';
   });
@@ -3515,7 +3527,7 @@ function duplicarPedido() {
       const btnCopiar = document.getElementById('btnCopiarPedido');
       if (btnCopiar) btnCopiar.style.display = 'none';
       // Rellenar campos
-      const campos = ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'];
+      const campos = ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','formato','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'];
       campos.forEach(k => {
         const fid = k==='hora_salida' ? 'f-hora-salida' : 'f-'+k;
         const el = document.getElementById(fid);
@@ -3594,6 +3606,7 @@ function addProductoExtra(datos) {
     </div>
     <div class="fgrid" style="margin-top:8px">
       <div class="fg"><label>📦 Cajas</label><input class="pe-cajas" placeholder="0" inputmode="numeric" value="${_esc(v.cajas)}" oninput="actualizarAvisoStock()"></div>
+      <div class="fg"><label>🍶 Formato</label><input class="pe-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off" value="${_esc(v.formato)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>📦 Cajas por palet</label><input class="pe-cpp" placeholder="0" inputmode="numeric" value="${_esc(v.cpp)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>🧮 Total cajas</label><input class="pe-totalcajas" placeholder="0" readonly tabindex="-1" style="font-weight:800" value="${_esc(v.totalCajas)}"></div>
       <div class="fg"><label>🟫 Euros</label><input class="pe-europalets" placeholder="0" type="number" min="0" max="999" maxlength="3" inputmode="numeric" value="${_esc(v.europalets)}"></div>
@@ -3613,6 +3626,7 @@ function getProductosExtra() {
     producto:    el.querySelector('.pe-producto')?.value.trim()||'',
     uds:         el.querySelector('.pe-uds')?.value.trim()||'',
     cajas:       el.querySelector('.pe-cajas')?.value.trim()||'',
+    formato:     el.querySelector('.pe-formato')?.value.trim()||'',
     cpp:         el.querySelector('.pe-cpp')?.value.trim()||'',
     totalCajas:  el.querySelector('.pe-totalcajas')?.value.trim()||'',
     europalets:  parseInt(el.querySelector('.pe-europalets')?.value)||0,
@@ -3648,9 +3662,10 @@ function actualizarAvisoStock() {
   const aviso = document.getElementById('aviso-stock');
   if (!aviso) return;
   const lineas = [
-    { articulo: document.getElementById('f-producto')?.value.trim(), pal: parseFloat(document.getElementById('f-uds')?.value)||0, caj: parseFloat(document.getElementById('f-cajas')?.value)||0 },
+    { articulo: document.getElementById('f-producto')?.value.trim(), formato: document.getElementById('f-formato')?.value.trim()||'', pal: parseFloat(document.getElementById('f-uds')?.value)||0, caj: parseFloat(document.getElementById('f-cajas')?.value)||0 },
     ...[...document.querySelectorAll('#productos-extra-container .producto-extra')].map(el => ({
       articulo: el.querySelector('.pe-producto')?.value.trim()||'',
+      formato: el.querySelector('.pe-formato')?.value.trim()||'',
       pal: parseFloat(el.querySelector('.pe-uds')?.value)||0,
       caj: parseFloat(el.querySelector('.pe-cajas')?.value)||0
     }))
@@ -3658,8 +3673,8 @@ function actualizarAvisoStock() {
   const filas = lineas
     .filter(l => l.articulo && producciones.some(p => (p.articulo||'').trim().toUpperCase() === l.articulo.toUpperCase()))
     .map(l => {
-      const s = stockDisponible(l.articulo);
-      const pc = planConsumo(l.articulo, l.pal, l.caj); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
+      const s = stockDisponible(l.articulo, l.formato);
+      const pc = planConsumo(l.articulo, l.pal, l.caj, l.formato); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
       const sinCpp = producciones.some(x => (x.articulo||'').trim().toUpperCase()===l.articulo.toUpperCase() && !(parseFloat(x.cajasPorPalet)>0)); return { ...l, s, falta, sinCpp };
     });
   if (!filas.length) { aviso.style.display = 'none'; return; }
@@ -3668,7 +3683,7 @@ function actualizarAvisoStock() {
   aviso.style.background = hayFalta ? 'rgba(220,53,69,0.12)' : 'rgba(40,167,69,0.12)';
   aviso.style.color = hayFalta ? '#B02A37' : '#1E7E34';
   aviso.innerHTML = filas.map(f =>
-    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}`
+    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}`
   ).join('<br>');
 }
 window.actualizarAvisoStock = actualizarAvisoStock;
@@ -3718,7 +3733,7 @@ async function savePedido() {
   const p = {
     id, createdAt: editId ? (pedidos.find(x=>x.id===editId)?.createdAt || Date.now()) : Date.now(),
     num:get('f-num'), grupo:get('f-grupo'), producto:get('f-producto'), ref:get('f-ref'),
-    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), pais:get('f-pais'),
+    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), formato:get('f-formato'), pais:get('f-pais'),
     europalets: parseInt(get('f-europalets'))||0,
     mat1:get('f-mat1').toUpperCase(), mat2:get('f-mat2').toUpperCase(),
     hora:document.getElementById('f-hora').value,
@@ -3768,7 +3783,7 @@ async function _doSavePedido(p) {
 
 function limpiarPedidoModal() {
   confirm2('🗑','¿Limpiar formulario?','Se borrarán todos los campos','Limpiar','',()=>{
-    ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
+    ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','formato','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
     const avisoStockEl = document.getElementById('aviso-stock'); if(avisoStockEl) avisoStockEl.style.display='none';
     cargarProductosExtra([]);
     const sinInt = document.getElementById('f-sin-intercambio'); if(sinInt) sinInt.checked=false;
@@ -3806,9 +3821,9 @@ function closeCargarModal() { document.getElementById('mCargar').classList.remov
 
 // Construye la lista de líneas a cargar: el producto principal ('main') + cada producto extra (0,1,2...)
 function _cargaLineasDe(p) {
-  const lineas = [{ idx:'main', producto:p.producto||'', total:parseInt(p.uds)||0, totalCaj:parseInt(p.cajas)||0, cargado:parseInt(p.udsCargados)||0, cargadoCaj:parseInt(p.cajasCargadas)||0 }];
+  const lineas = [{ idx:'main', producto:p.producto||'', formato:p.formato||'', total:parseInt(p.uds)||0, totalCaj:parseInt(p.cajas)||0, cargado:parseInt(p.udsCargados)||0, cargadoCaj:parseInt(p.cajasCargadas)||0 }];
   (p.productosExtra||[]).forEach((pe,i) => {
-    lineas.push({ idx:String(i), producto:pe.producto||'', total:parseInt(pe.uds)||0, totalCaj:parseInt(pe.cajas)||0, cargado:parseInt(pe.udsCargados)||0, cargadoCaj:parseInt(pe.cajasCargados)||0 });
+    lineas.push({ idx:String(i), producto:pe.producto||'', formato:pe.formato||'', total:parseInt(pe.uds)||0, totalCaj:parseInt(pe.cajas)||0, cargado:parseInt(pe.udsCargados)||0, cargadoCaj:parseInt(pe.cajasCargados)||0 });
   });
   return lineas.filter(l => l.producto || l.total || l.totalCaj);
 }
@@ -3822,7 +3837,7 @@ function renderCargaProductosLista(p) {
     const restanteCaj = l.totalCaj>0 ? Math.max(l.totalCaj-l.cargadoCaj,0) : 0;
     const valPal = l.total>0 ? restantePal : '';
     const valCaj = l.totalCaj>0 ? restanteCaj : '';
-    return `<div class="c-linea-carga" data-lineidx="${l.idx}" data-producto="${_esc(l.producto)}" data-total="${l.total}" data-totalcaj="${l.totalCaj}" data-cargado="${l.cargado}" data-cargadocaj="${l.cargadoCaj}" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border2)">
+    return `<div class="c-linea-carga" data-lineidx="${l.idx}" data-producto="${_esc(l.producto)}" data-formato="${_esc(l.formato)}" data-total="${l.total}" data-totalcaj="${l.totalCaj}" data-cargado="${l.cargado}" data-cargadocaj="${l.cargadoCaj}" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border2)">
       <div style="font-weight:700;font-size:12.5px;margin-bottom:4px">📦 ${l.producto||'(sin producto)'}</div>
       <div class="fgrid">
         <div class="fg"><label>🟧 Palets en esta carga</label><input class="c-linea-pal" type="number" min="0" inputmode="numeric" placeholder="0" value="${valPal}" oninput="actualizarRestanteCarga()"></div>
@@ -3906,7 +3921,7 @@ async function confirmarCarga() {
 
     // Descontar stock (FIFO por caducidad) del artículo de esta línea
     if (producto && (estaPal>0 || estaCaj>0)) {
-      const usados = await consumirStock(producto, estaPal, estaCaj);
+      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'');
       usados.forEach(u => u.producto = producto);
       lotesConsumidosTotal = lotesConsumidosTotal.concat(usados);
     }
@@ -4028,6 +4043,8 @@ function abrirProduccionDesdePedido(p) {
   document.getElementById('pr-articulo').value = p.producto || '';
   document.getElementById('pr-palets').value = p.uds || '';
   document.getElementById('pr-cajas').value = p.cajas || '';
+  document.getElementById('pr-formato').value = p.formato || '';
+  document.getElementById('pr-cpp').value = p.cpp || '';
   const loteEl = document.getElementById('pr-lote');
   if (loteEl) loteEl.focus();
 }
@@ -5046,7 +5063,7 @@ async function guardarSaldoInicial(){
 
 // ══════════ PRODUCCIÓN / STOCK ══════════
 function openProduccionModal(){
-  ['pr-articulo','pr-marca','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   document.getElementById('pr-fecha').value = new Date().toISOString().slice(0,10);
   _setModoEdicion(null);
   renderProduccionList();
@@ -5074,6 +5091,7 @@ async function guardarProduccion(){
   const lote = {
     id: prev ? prev.id : 'lote_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     articulo, marca: document.getElementById('pr-marca').value.trim().toUpperCase(),
+    formato: document.getElementById('pr-formato').value.trim().toUpperCase(),
     palets, cajas, cajasPorPalet: cpp,
     paletsConsumidos: prev ? (prev.paletsConsumidos||0) : 0, cajasConsumidos: prev ? (prev.cajasConsumidos||0) : 0,
     lote: document.getElementById('pr-lote').value.trim().toUpperCase(),
@@ -5084,7 +5102,7 @@ async function guardarProduccion(){
     createdAt: prev ? (prev.createdAt||Date.now()) : Date.now()
   };
   await fbSaveProduccion(lote);
-  ['pr-marca','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   toast(prev ? '💾 Lote actualizado' : '🏭 Lote registrado'); _setModoEdicion(null);
   renderProduccionList();
 }
@@ -5120,7 +5138,7 @@ function renderProduccionList(){
         <b>${l.articulo||''}</b>
         <span><button class="tbl-btn" onclick="editarLoteProduccion('${l.id}')" title="Editar lote" style="font-size:11px;padding:2px 6px">✏️</button> <button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:11px;padding:2px 6px">🗑️</button></span>
       </div>
-      <div style="color:var(--t2);margin-top:3px">${[l.marca, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+l.caducidad:'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':''].filter(Boolean).join(' · ')}</div>
+      <div style="color:var(--t2);margin-top:3px">${[l.marca, l.formato, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+l.caducidad:'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':''].filter(Boolean).join(' · ')}</div>
       <div style="margin-top:3px">Restante: <b>${restPal} pal.</b> · <b>${restCaj} cajas</b>${agotado?' · <span style="color:var(--status-load)">agotado</span>':''}</div>
     </div>`;
   }).join('');
@@ -5137,7 +5155,7 @@ function _setModoEdicion(id){
 function editarLoteProduccion(id){
   const l=producciones.find(x=>String(x.id)===String(id)); if(!l) return;
   const set=(k,v)=>{const el=document.getElementById(k); if(el) el.value=(v??'');};
-  set('pr-articulo',l.articulo); set('pr-marca',l.marca); set('pr-palets',l.palets); set('pr-cajas',l.cajas);
+  set('pr-articulo',l.articulo); set('pr-marca',l.marca); set('pr-formato',l.formato); set('pr-palets',l.palets); set('pr-cajas',l.cajas);
   set('pr-cpp',l.cajasPorPalet); set('pr-lote',l.lote); set('pr-caducidad',l.caducidad); set('pr-peso',l.peso);
   set('pr-fecha',l.fecha); set('pr-notas',l.notas);
   _setModoEdicion(l.id);
@@ -5145,7 +5163,7 @@ function editarLoteProduccion(id){
   toast('✏️ Editando lote (cantidades fabricadas)');
 }
 function cancelarEdicionLote(){
-  ['pr-articulo','pr-marca','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   _setModoEdicion(null);
 }
 window.editarLoteProduccion = editarLoteProduccion;

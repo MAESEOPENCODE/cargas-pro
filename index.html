@@ -313,6 +313,8 @@ header::after{
 }
 .fab:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(245,166,35,0.55);}
 .fab:active{transform:scale(0.92)}
+.fab-prod{position:fixed;bottom:80px;left:20px;z-index:50;width:56px;height:56px;border-radius:18px;border:2px solid #F5A623;background:#2A2E38;font-size:26px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transition:all .2s}
+.fab-prod:active{transform:scale(0.92)}
 
 /* ══ GROUP HEADERS — Enterprise ══ */
 .group-header{display:flex;align-items:center;gap:12px;margin:16px 0 8px}
@@ -1215,7 +1217,7 @@ tr:hover td{background:rgba(245,166,35,0.06)}
 /* Hide main content when EP screen is active */
 body.ep-active header,body.ep-active .tabs-wrap,body.ep-active .stats-row,
 body.ep-active .search-row,body.ep-active .filter-panel,body.ep-active .scroll-content,
-body.ep-active .fab{display:none !important}
+body.ep-active .fab,body.ep-active .fab-prod{display:none !important}
 
 /* ════════════════════════════════════════════════════════════════════════
    ██████╗ ██████╗     ██████╗ ██████╗ ███████╗███╗   ███╗██╗██╗   ██╗███╗   ███╗
@@ -2223,7 +2225,6 @@ input[type=password],input[type=email]{text-transform:none}
     <button class="export-btn" onclick="document.getElementById('importJsonInput').click()" title="Importar JSON" style="width:auto;padding:5px 10px;font-size:11px;font-weight:700;">📥 Importar datos</button>
     <input type="file" id="importJsonInput" accept=".json" style="display:none" onchange="importarJSON(event)">
     <button class="export-btn" onclick="exportarCSV()" title="Exportar CSV">📤</button>
-    <button class="export-btn" onclick="openProduccionModal()" title="Producción / Stock">🏭</button>
   </div>
 </header>
 
@@ -2276,6 +2277,7 @@ input[type=password],input[type=email]{text-transform:none}
 
 <!-- FAB -->
 <button class="fab" onclick="openPedidoModal(null)">＋</button>
+<button class="fab-prod" onclick="openProduccionModal()" title="Producción / Stock">🏭</button>
 
 <!-- BOTTOM NAV -->
 <div class="bottom-nav">

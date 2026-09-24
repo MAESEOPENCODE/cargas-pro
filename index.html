@@ -2424,6 +2424,9 @@ input[type=password],input[type=email]{text-transform:none}
           <div class="fgrid full" style="margin-top:8px">
             <div class="fg"><label>🍶 Formato</label><input id="f-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off" oninput="actualizarAvisoStock()"></div>
           </div>
+          <div class="fgrid full" style="margin-top:8px">
+            <div class="fg"><label>🔖 Producción de la que sale</label><select id="f-prodRef" data-want="" onchange="this.dataset.want=this.value;actualizarAvisoStock()"><option value="">— Sin asignar —</option></select></div>
+          </div>
           <div class="fgrid" style="margin-top:8px">
             <div class="fg"><label>📦 Cajas</label><input id="f-cajas" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
             <div class="fg"><label>📦 Cajas por palet</label><input id="f-cpp" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
@@ -2719,7 +2722,9 @@ input[type=password],input[type=email]{text-transform:none}
       <div class="modal-subtitle" id="fb-sub"></div>
     </div>
     <div class="modal-scroll">
-      <div class="fgrid full"><div class="fg"><label>🧃 Total bricks (corrígelo si hay merma)</label><input id="fb-total" type="number" min="1" inputmode="numeric" oninput="fbCalc()"></div></div>
+      <div class="fgrid full"><div class="fg"><label>📍 Pasar a</label><select id="fb-dest" onchange="fbCalc()"></select></div></div>
+      <div class="fgrid full"><div class="fg"><label>🟧 Palets de bandejas que avanzan</label><input id="fb-pal" type="number" min="0" inputmode="numeric" oninput="fbPalChange()"></div></div>
+      <div class="fgrid full"><div class="fg"><label>🧃 Total bricks que avanzan (corrígelo si hay merma)</label><input id="fb-total" type="number" min="1" inputmode="numeric" oninput="fbCalc()"></div></div>
       <div id="fb-enc" style="display:none">
         <div class="fgrid">
           <div class="fg"><label>🧃 Bricks por caja</label><input id="fb-bpc" type="number" min="1" inputmode="numeric" placeholder="0" oninput="fbCalc()"></div>
@@ -2892,6 +2897,61 @@ colProd.onSnapshot((snap) => {
 }, (err) => { console.error('Firestore producción:', err); });
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
+// ── Nº automático de producción (P-AAAA-NNN) ──
+function _nuevoNumProd(fecha) {
+  const pre = 'P-' + ((fecha||'').slice(0,4) || new Date().getFullYear()) + '-';
+  let max = 0;
+  producciones.forEach(l => { if ((l.numProd||'').startsWith(pre)) max = Math.max(max, parseInt(l.numProd.slice(pre.length))||0); });
+  return pre + String(max+1).padStart(3,'0');
+}
+// Numera las producciones antiguas que no tienen número (por orden de creación)
+async function asignarNumerosProduccion() {
+  const sin = producciones.filter(l=>!l.numProd).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  if (!sin.length) return;
+  const usados = new Set(producciones.map(l=>l.numProd).filter(Boolean));
+  for (const l of sin) {
+    const y = (l.fecha||'').slice(0,4) || String(new Date().getFullYear()); let n = 1, num;
+    do { num = 'P-'+y+'-'+String(n++).padStart(3,'0'); } while (usados.has(num));
+    usados.add(num); await fbSaveProduccion({ ...l, numProd:num });
+  }
+}
+// Producciones con stock (agrupadas por número) para un artículo/formato
+function _opcionesProd(articulo, formato) {
+  const key = (articulo||'').trim().toUpperCase(); if (!key) return [];
+  const m = new Map();
+  producciones.forEach(l => {
+    if ((l.articulo||'').trim().toUpperCase()!==key || !_fmtOk(l,formato) || !l.numProd) return;
+    if (l.tipo==='brik' && l.fase!=='encajado') return;
+    const d = _dispLote(l); if (d.palets<=0 && d.cajas<=0) return;
+    const o = m.get(l.numProd) || { num:l.numProd, pal:0, caj:0, lote:l.lote||'', cad:l.caducidad||'' };
+    o.pal += d.palets; o.caj += d.cajas; m.set(l.numProd, o);
+  });
+  return [...m.values()];
+}
+function _pintarSelectProd(sel, articulo, formato) {
+  const want = sel.dataset.want || '';
+  const ops = _opcionesProd(articulo, formato);
+  let html = '<option value="">— Sin asignar —</option>' + ops.map(o=>`<option value="${o.num}">${o.num}${o.lote?' · Lote '+o.lote:''} · ${o.pal} pal.${o.caj?' + '+o.caj+' cajas':''}${o.cad?' · cad. '+o.cad:''}</option>`).join('');
+  if (want && !ops.some(o=>o.num===want)) html += `<option value="${want}">${want} (sin stock)</option>`;
+  sel.innerHTML = html; sel.value = want;
+}
+function refrescarProdSelects() {
+  const g = id => document.getElementById(id);
+  const m = g('f-prodRef'); if (m) _pintarSelectProd(m, g('f-producto')?.value, g('f-formato')?.value);
+  document.querySelectorAll('#productos-extra-container .producto-extra').forEach(el => {
+    const sl = el.querySelector('.pe-prod'); if (sl) _pintarSelectProd(sl, el.querySelector('.pe-producto')?.value, el.querySelector('.pe-formato')?.value);
+  });
+}
+function _setProdRefMain(v) { const el = document.getElementById('f-prodRef'); if (el) el.dataset.want = v||''; refrescarProdSelects(); }
+window._setProdRefMain = _setProdRefMain;
+function _paraHtml(l) {
+  const m = new Map((l.pedidosRef||[]).map(r=>[String(r.id), r.txt]));
+  if (l.numProd) pedidos.forEach(p => {
+    if (p.status==='cargado') return;
+    if (p.prodRef===l.numProd || (p.productosExtra||[]).some(e=>e.prodRef===l.numProd)) m.set(String(p.id), (p.grupo||'')+(p.num?' #'+p.num:''));
+  });
+  return m.size ? `<div style="margin-top:3px;color:var(--t2)">📋 Para: <b>${[...m.values()].join(', ')}</b></div>` : '';
+}
 function _dispLote(l) {
   const k=parseFloat(l.cajasPorPalet)||0, P=parseFloat(l.palets)||0, C=parseFloat(l.cajas)||0;
   const pc=parseFloat(l.paletsConsumidos)||0, cc=parseFloat(l.cajasConsumidos)||0;
@@ -2900,22 +2960,22 @@ function _dispLote(l) {
 }
 // Stock disponible de un artículo (palets completos + cajas sueltas)
 function _fmtOk(l,f){ const a=(l.formato||'').trim().toUpperCase(), b=(f||'').trim().toUpperCase(); return !a||!b||a===b; }
-function stockDisponible(articulo, formato) {
+function stockDisponible(articulo, formato, prodRef) {
   const key = (articulo||'').trim().toUpperCase();
   if (!key) return { palets: 0, cajas: 0 };
   let palets = 0, cajas = 0;
   producciones.forEach(l => {
-    if ((l.articulo||'').trim().toUpperCase() !== key || !_fmtOk(l,formato)) return;
+    if ((l.articulo||'').trim().toUpperCase() !== key || !_fmtOk(l,formato) || (prodRef && l.numProd!==prodRef)) return;
     const d=_dispLote(l); palets+=d.palets; cajas+=d.cajas;
   });
   return { palets, cajas };
 }
 // Plan FIFO (caducidad más próxima): coge los palets pedidos y las cajas necesarias, rompiendo palet si hace falta
-function planConsumo(articulo, pal, caj, formato, pedidoId) {
+function planConsumo(articulo, pal, caj, formato, pedidoId, prodRef, soloProd) {
   const key=(articulo||'').trim().toUpperCase();
   let rp=parseFloat(pal)||0, rc=parseFloat(caj)||0; const plan=[];
-  producciones.filter(l=>(l.articulo||'').trim().toUpperCase()===key && _fmtOk(l,formato))
-    .sort((a,b)=>{ const r=x=>pedidoId&&(x.pedidosRef||[]).some(q=>String(q.id)===String(pedidoId))?0:1; return r(a)-r(b) || (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'); })
+  producciones.filter(l=>(l.articulo||'').trim().toUpperCase()===key && _fmtOk(l,formato) && (!soloProd || !prodRef || l.numProd===prodRef))
+    .sort((a,b)=>{ const r=x=>(prodRef&&x.numProd===prodRef)?0:(pedidoId&&(x.pedidosRef||[]).some(q=>String(q.id)===String(pedidoId))?1:2); return r(a)-r(b) || (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'); })
     .forEach(l=>{
       if (rp<=0 && rc<=0) return;
       const d=_dispLote(l);
@@ -2953,8 +3013,8 @@ async function fbDeleteProduccion(id) {
 }
 
 // Consume stock FIFO para un artículo. Devuelve [{id, lote, palets, cajas, caducidad}]
-async function consumirStock(articulo, palets, cajas, formato, pedidoId) {
-  const { plan } = planConsumo(articulo, palets, cajas, formato, pedidoId); const usados=[];
+async function consumirStock(articulo, palets, cajas, formato, pedidoId, prodRef) {
+  const { plan } = planConsumo(articulo, palets, cajas, formato, pedidoId, prodRef, false); const usados=[];
   for (const {l,up,uc} of plan) {
     await fbSaveProduccion({ ...l,
       paletsConsumidos:(parseFloat(l.paletsConsumidos)||0)+up,
@@ -3378,7 +3438,8 @@ function paletsInfoHtml(p) {
 }
 
 function formatoHtml(p) {
-  return p.formato ? `<div class="info-block sm"><div class="info-label">Formato</div><span class="tag tag-palets">${p.formato}</span></div>` : '';
+  const blk = (t,v) => `<div class="info-block sm"><div class="info-label">${t}</div><span class="tag tag-palets">${v}</span></div>`;
+  return (p.formato ? blk('Formato',p.formato) : '') + (p.prodRef ? blk('Producción',p.prodRef) : '');
 }
 function totalCajasHtml(p) {
   const t = parseInt(p.totalCajas)||0;
@@ -3547,6 +3608,7 @@ function openPedidoModal(idOrNull) {
   actualizarAvisoStock();
   // Cargar productos extra (multi-producto)
   cargarProductosExtra(p?.productosExtra||[]);
+  _setProdRefMain(p?.prodRef||'');
   document.getElementById('f-status').value = p?.status||'pendiente';
   document.getElementById('f-tipolinea').value = p?.tipoLinea||'botella';
   document.getElementById('f-fase').value = p?.faseBrik||'llenado';
@@ -3681,6 +3743,7 @@ function addProductoExtra(datos) {
     </div>
     <div class="fgrid" style="margin-top:8px">
       <div class="fg"><label>📦 Cajas</label><input class="pe-cajas" placeholder="0" inputmode="numeric" value="${_esc(v.cajas)}" oninput="actualizarAvisoStock()"></div>
+      <div class="fg"><label>🔖 Producción</label><select class="pe-prod" data-want="${_esc(v.prodRef)}" onchange="this.dataset.want=this.value;actualizarAvisoStock()"><option value="">— Sin asignar —</option></select></div>
       <div class="fg"><label>🍶 Formato</label><input class="pe-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off" value="${_esc(v.formato)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>📦 Cajas por palet</label><input class="pe-cpp" placeholder="0" inputmode="numeric" value="${_esc(v.cpp)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>🧮 Total cajas</label><input class="pe-totalcajas" placeholder="0" readonly tabindex="-1" style="font-weight:800" value="${_esc(v.totalCajas)}"></div>
@@ -3701,6 +3764,7 @@ function getProductosExtra() {
     producto:    el.querySelector('.pe-producto')?.value.trim()||'',
     uds:         el.querySelector('.pe-uds')?.value.trim()||'',
     cajas:       el.querySelector('.pe-cajas')?.value.trim()||'',
+    prodRef:     el.querySelector('.pe-prod')?.dataset.want||'',
     formato:     el.querySelector('.pe-formato')?.value.trim()||'',
     cpp:         el.querySelector('.pe-cpp')?.value.trim()||'',
     totalCajas:  el.querySelector('.pe-totalcajas')?.value.trim()||'',
@@ -3734,13 +3798,15 @@ function calcTotalesCajas() {
 }
 function actualizarAvisoStock() {
   calcTotalesCajas();
+  refrescarProdSelects();
   const aviso = document.getElementById('aviso-stock');
   if (!aviso) return;
   const lineas = [
-    { articulo: document.getElementById('f-producto')?.value.trim(), formato: document.getElementById('f-formato')?.value.trim()||'', pal: parseFloat(document.getElementById('f-uds')?.value)||0, caj: parseFloat(document.getElementById('f-cajas')?.value)||0 },
+    { articulo: document.getElementById('f-producto')?.value.trim(), formato: document.getElementById('f-formato')?.value.trim()||'', prod: document.getElementById('f-prodRef')?.dataset.want||'', pal: parseFloat(document.getElementById('f-uds')?.value)||0, caj: parseFloat(document.getElementById('f-cajas')?.value)||0 },
     ...[...document.querySelectorAll('#productos-extra-container .producto-extra')].map(el => ({
       articulo: el.querySelector('.pe-producto')?.value.trim()||'',
       formato: el.querySelector('.pe-formato')?.value.trim()||'',
+      prod: el.querySelector('.pe-prod')?.dataset.want||'',
       pal: parseFloat(el.querySelector('.pe-uds')?.value)||0,
       caj: parseFloat(el.querySelector('.pe-cajas')?.value)||0
     }))
@@ -3748,8 +3814,8 @@ function actualizarAvisoStock() {
   const filas = lineas
     .filter(l => l.articulo && producciones.some(p => (p.articulo||'').trim().toUpperCase() === l.articulo.toUpperCase()))
     .map(l => {
-      const s = stockDisponible(l.articulo, l.formato);
-      const pc = planConsumo(l.articulo, l.pal, l.caj, l.formato, editId); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
+      const s = stockDisponible(l.articulo, l.formato, l.prod);
+      const pc = planConsumo(l.articulo, l.pal, l.caj, l.formato, editId, l.prod, true); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
       const sinCpp = producciones.some(x => (x.articulo||'').trim().toUpperCase()===l.articulo.toUpperCase() && !(parseFloat(x.cajasPorPalet)>0)); return { ...l, s, falta, sinCpp };
     });
   if (!filas.length) { aviso.style.display = 'none'; return; }
@@ -3758,7 +3824,7 @@ function actualizarAvisoStock() {
   aviso.style.background = hayFalta ? 'rgba(220,53,69,0.12)' : 'rgba(40,167,69,0.12)';
   aviso.style.color = hayFalta ? '#B02A37' : '#1E7E34';
   aviso.innerHTML = filas.map(f =>
-    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}`
+    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}${f.prod?' · '+f.prod:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}`
   ).join('<br>');
 }
 window.actualizarAvisoStock = actualizarAvisoStock;
@@ -3808,7 +3874,7 @@ async function savePedido() {
   const p = {
     id, createdAt: editId ? (pedidos.find(x=>x.id===editId)?.createdAt || Date.now()) : Date.now(),
     num:get('f-num'), grupo:get('f-grupo'), producto:get('f-producto'), ref:get('f-ref'),
-    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), formato:get('f-formato'), pais:get('f-pais'),
+    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), formato:get('f-formato'), prodRef:(document.getElementById('f-prodRef')?.dataset.want||''), pais:get('f-pais'),
     europalets: parseInt(get('f-europalets'))||0,
     mat1:get('f-mat1').toUpperCase(), mat2:get('f-mat2').toUpperCase(),
     hora:document.getElementById('f-hora').value,
@@ -3861,6 +3927,7 @@ function limpiarPedidoModal() {
     ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','formato','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
     const avisoStockEl = document.getElementById('aviso-stock'); if(avisoStockEl) avisoStockEl.style.display='none';
     cargarProductosExtra([]);
+    _setProdRefMain('');
     const sinInt = document.getElementById('f-sin-intercambio'); if(sinInt) sinInt.checked=false;
     const fAlb = document.getElementById('f-albaran-pedido'); if(fAlb) fAlb.value='';
     const blAlb = document.getElementById('bloque-albaran-pedido'); if(blAlb) blAlb.style.display='none';
@@ -3896,9 +3963,9 @@ function closeCargarModal() { document.getElementById('mCargar').classList.remov
 
 // Construye la lista de líneas a cargar: el producto principal ('main') + cada producto extra (0,1,2...)
 function _cargaLineasDe(p) {
-  const lineas = [{ idx:'main', producto:p.producto||'', formato:p.formato||'', total:parseInt(p.uds)||0, totalCaj:parseInt(p.cajas)||0, cargado:parseInt(p.udsCargados)||0, cargadoCaj:parseInt(p.cajasCargadas)||0 }];
+  const lineas = [{ idx:'main', producto:p.producto||'', formato:p.formato||'', prodRef:p.prodRef||'', total:parseInt(p.uds)||0, totalCaj:parseInt(p.cajas)||0, cargado:parseInt(p.udsCargados)||0, cargadoCaj:parseInt(p.cajasCargadas)||0 }];
   (p.productosExtra||[]).forEach((pe,i) => {
-    lineas.push({ idx:String(i), producto:pe.producto||'', formato:pe.formato||'', total:parseInt(pe.uds)||0, totalCaj:parseInt(pe.cajas)||0, cargado:parseInt(pe.udsCargados)||0, cargadoCaj:parseInt(pe.cajasCargados)||0 });
+    lineas.push({ idx:String(i), producto:pe.producto||'', formato:pe.formato||'', prodRef:pe.prodRef||'', total:parseInt(pe.uds)||0, totalCaj:parseInt(pe.cajas)||0, cargado:parseInt(pe.udsCargados)||0, cargadoCaj:parseInt(pe.cajasCargados)||0 });
   });
   return lineas.filter(l => l.producto || l.total || l.totalCaj);
 }
@@ -3912,7 +3979,7 @@ function renderCargaProductosLista(p) {
     const restanteCaj = l.totalCaj>0 ? Math.max(l.totalCaj-l.cargadoCaj,0) : 0;
     const valPal = l.total>0 ? restantePal : '';
     const valCaj = l.totalCaj>0 ? restanteCaj : '';
-    return `<div class="c-linea-carga" data-lineidx="${l.idx}" data-producto="${_esc(l.producto)}" data-formato="${_esc(l.formato)}" data-total="${l.total}" data-totalcaj="${l.totalCaj}" data-cargado="${l.cargado}" data-cargadocaj="${l.cargadoCaj}" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border2)">
+    return `<div class="c-linea-carga" data-lineidx="${l.idx}" data-producto="${_esc(l.producto)}" data-formato="${_esc(l.formato)}" data-prodref="${_esc(l.prodRef)}" data-total="${l.total}" data-totalcaj="${l.totalCaj}" data-cargado="${l.cargado}" data-cargadocaj="${l.cargadoCaj}" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border2)">
       <div style="font-weight:700;font-size:12.5px;margin-bottom:4px">📦 ${l.producto||'(sin producto)'}</div>
       <div class="fgrid">
         <div class="fg"><label>🟧 Palets en esta carga</label><input class="c-linea-pal" type="number" min="0" inputmode="numeric" placeholder="0" value="${valPal}" oninput="actualizarRestanteCarga()"></div>
@@ -3996,7 +4063,7 @@ async function confirmarCarga() {
 
     // Descontar stock (FIFO por caducidad) del artículo de esta línea
     if (producto && (estaPal>0 || estaCaj>0)) {
-      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'', p.id);
+      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'', p.id, el.dataset.prodref||'');
       usados.forEach(u => u.producto = producto);
       lotesConsumidosTotal = lotesConsumidosTotal.concat(usados);
     }
@@ -5170,44 +5237,69 @@ function _brikInfoHtml(l) {
   return `<div style="margin-top:3px">🧃 <b>${F[l.fase]||'—'}</b>: <b>${_fmtN(parseFloat(l.totalBricks)||0)} bricks</b>${det}${btn}</div>`;
 }
 let _faseLote = null;
+const _FASE_TXT = { llenado:'Llenado', etiquetado:'Etiquetado', encajado:'Encajado (Tetra Pak)' };
+const _bricksPalBand = l => (parseFloat(l.bricksPorBandeja)||0)*(parseFloat(l.bandejasPorPalet)||0);
 function avanzarFaseLote(id) {
   const l = producciones.find(x=>String(x.id)===String(id));
   if (!l || l.tipo!=='brik' || l.fase==='encajado') return;
   _faseLote = l;
-  const sig = l.fase==='llenado' ? 'etiquetado' : 'encajado';
-  document.getElementById('fb-title').textContent = sig==='etiquetado' ? 'Pasar a Etiquetado' : 'Pasar a Encajado (Tetra Pak)';
-  document.getElementById('fb-sub').textContent = l.articulo + (l.lote?' · Lote '+l.lote:'');
+  const dests = l.fase==='llenado' ? ['etiquetado','encajado'] : ['encajado'];
+  document.getElementById('fb-dest').innerHTML = dests.map(d=>`<option value="${d}">${_FASE_TXT[d]}</option>`).join('');
+  document.getElementById('fb-title').textContent = 'Avanzar lote';
+  document.getElementById('fb-sub').textContent = l.articulo + (l.lote?' · Lote '+l.lote:'') + ' · Ahora en ' + _FASE_TXT[l.fase] + ': ' + _fmtN(parseFloat(l.totalBricks)||0) + ' bricks' + (l.paletsBandejas ? ' ('+l.paletsBandejas+' palets de bandejas)' : '');
+  document.getElementById('fb-pal').value = l.paletsBandejas || 0;
   document.getElementById('fb-total').value = l.totalBricks || '';
   document.getElementById('fb-bpc').value = ''; document.getElementById('fb-cpp').value = '';
-  document.getElementById('fb-enc').style.display = sig==='encajado' ? '' : 'none';
   fbCalc();
   document.getElementById('mFaseBrik').classList.add('open');
 }
+// Al cambiar los palets que avanzan se recalcula el total de bricks de esa parte
+function fbPalChange() {
+  const l = _faseLote; if (!l) return;
+  const pal = parseFloat(document.getElementById('fb-pal').value)||0, P = parseFloat(l.paletsBandejas)||0;
+  document.getElementById('fb-total').value = pal>=P ? (l.totalBricks||'') : (pal*_bricksPalBand(l)||'');
+  fbCalc();
+}
 function fbCalc() {
+  const l = _faseLote;
   const v = id => parseFloat(document.getElementById(id).value)||0;
-  const e = _encajar(v('fb-total'), v('fb-bpc'), v('fb-cpp'));
-  document.getElementById('fb-prev').textContent = e ? '= '+_fmtN(e.cajasTot)+' cajas · '+e.palets+' palets + '+e.cajas+' cajas'+(e.sueltos?' · sobran '+e.sueltos+' bricks':'') : '';
+  const enc = document.getElementById('fb-dest').value==='encajado';
+  document.getElementById('fb-enc').style.display = enc ? '' : 'none';
+  let txt = '';
+  if (enc) { const e = _encajar(v('fb-total'), v('fb-bpc'), v('fb-cpp')); if (e) txt += '<div>= '+_fmtN(e.cajasTot)+' cajas · '+e.palets+' palets + '+e.cajas+' cajas'+(e.sueltos?' · sobran '+e.sueltos+' bricks':'')+'</div>'; }
+  if (l) { const P = parseFloat(l.paletsBandejas)||0, pal = v('fb-pal');
+    if (P>0 && pal>0 && pal<P) txt += '<div style="margin-top:4px">Quedan en '+_FASE_TXT[l.fase]+': <b>'+(P-pal)+' palets de bandejas</b> · '+_fmtN(Math.max((parseFloat(l.totalBricks)||0)-pal*_bricksPalBand(l),0))+' bricks</div>'; }
+  document.getElementById('fb-prev').innerHTML = txt;
 }
 function cerrarFaseBrik() { document.getElementById('mFaseBrik').classList.remove('open'); _faseLote = null; }
 async function confirmarFaseBrik() {
   const l = _faseLote; if (!l) return;
   const v = id => parseFloat(document.getElementById(id).value)||0;
-  const total = v('fb-total');
+  const dest = document.getElementById('fb-dest').value;
+  const P = parseFloat(l.paletsBandejas)||0, pal = v('fb-pal'), total = v('fb-total');
   if (total<=0) { toast('⚠️ Indica el total de bricks'); return; }
-  const sig = l.fase==='llenado' ? 'etiquetado' : 'encajado';
-  let upd = { ...l, fase:sig, totalBricks:total };
-  if (sig==='encajado') {
+  if (P>0 && pal<=0) { toast('⚠️ Indica cuántos palets avanzan'); return; }
+  if (pal>P) { toast('⚠️ Solo hay '+P+' palets de bandejas'); return; }
+  const parcial = P>0 && pal<P;
+  let adv = { ...l, fase:dest, totalBricks:total };
+  if (dest==='encajado') {
     const bpc = v('fb-bpc'), k = v('fb-cpp'), e = _encajar(total, bpc, k);
     if (!e) { toast('⚠️ Indica bricks por caja y cajas por palet'); return; }
-    upd = { ...upd, bricksPorCaja:bpc, cajasPorPalet:k, palets:e.palets, cajas:e.cajas, bricksSueltos:e.sueltos, paletsConsumidos:0, cajasConsumidos:0 };
+    adv = { ...adv, bricksPorCaja:bpc, cajasPorPalet:k, palets:e.palets, cajas:e.cajas, bricksSueltos:e.sueltos, paletsConsumidos:0, cajasConsumidos:0 };
   }
-  await fbSaveProduccion(upd);
+  if (parcial) {
+    // El lote se divide: lo que avanza pasa a un registro nuevo y el resto se queda en su fase
+    adv = { ...adv, id:'lote_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), createdAt:Date.now(),
+            paletsBandejas:pal, bandejasSueltas:0, bandejasIncompletas:0, bricksIncompletos:0 };
+    await fbSaveProduccion({ ...l, paletsBandejas:P-pal, totalBricks:Math.max((parseFloat(l.totalBricks)||0)-pal*_bricksPalBand(l),0) });
+  }
+  await fbSaveProduccion(adv);
   cerrarFaseBrik();
-  toast(sig==='etiquetado' ? '🧃 Lote en Etiquetado' : '📦 Lote encajado · ya está en stock');
+  toast(dest==='encajado' ? '📦 Encajado · ya está en stock' : '🧃 Lote en Etiquetado');
   renderProduccionList();
-  if (sig==='encajado') preguntarPedidosLote(upd);
+  if (dest==='encajado') preguntarPedidosLote(adv);
 }
-window.avanzarFaseLote = avanzarFaseLote; window.fbCalc = fbCalc;
+window.avanzarFaseLote = avanzarFaseLote; window.fbCalc = fbCalc; window.fbPalChange = fbPalChange;
 window.cerrarFaseBrik = cerrarFaseBrik; window.confirmarFaseBrik = confirmarFaseBrik;
 
 function openProduccionModal(){
@@ -5215,6 +5307,7 @@ function openProduccionModal(){
   document.getElementById('pr-fecha').value = new Date().toISOString().slice(0,10);
   _setModoEdicion(null);
   renderProduccionList();
+  asignarNumerosProduccion().then(renderProduccionList);
   document.getElementById('mProduccion').classList.add('open');
 }
 function closeProduccionModal(){
@@ -5256,6 +5349,7 @@ async function guardarProduccion(){
     articulo, marca: document.getElementById('pr-marca').value.trim().toUpperCase(),
     formato: document.getElementById('pr-formato').value.trim().toUpperCase(),
     ...extra,
+    numProd: (prev && prev.numProd) || _nuevoNumProd(document.getElementById('pr-fecha').value),
     palets, cajas, cajasPorPalet: cpp,
     paletsConsumidos: prev ? (prev.paletsConsumidos||0) : 0, cajasConsumidos: prev ? (prev.cajasConsumidos||0) : 0,
     lote: document.getElementById('pr-lote').value.trim().toUpperCase(),
@@ -5267,7 +5361,7 @@ async function guardarProduccion(){
   };
   await fbSaveProduccion(lote);
   ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
-  toast(prev ? '💾 Lote actualizado' : '🏭 Lote registrado'); _setModoEdicion(null);
+  toast(prev ? '💾 Lote actualizado' : '🏭 Producción '+lote.numProd+' registrada'); _setModoEdicion(null);
   if(!prev && !(lote.tipo==='brik' && lote.fase!=='encajado')) preguntarPedidosLote(lote);
   renderProduccionList();
 }
@@ -5304,8 +5398,8 @@ function renderProduccionList(){
         <b>${l.articulo||''}</b>
         <span><button class="tbl-btn" onclick="editarLoteProduccion('${l.id}')" title="Editar lote" style="font-size:11px;padding:2px 6px">✏️</button> <button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:11px;padding:2px 6px">🗑️</button></span>
       </div>
-      <div style="color:var(--t2);margin-top:3px">${[l.marca, l.formato, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+l.caducidad:'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':''].filter(Boolean).join(' · ')}</div>
-      ${(l.pedidosRef||[]).length?`<div style="margin-top:3px;color:var(--t2)">📋 Para: <b>${l.pedidosRef.map(r=>r.txt).join(', ')}</b></div>`:''}
+      <div style="color:var(--t2);margin-top:3px">${[l.numProd?'Nº '+l.numProd:'', l.marca, l.formato, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+l.caducidad:'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':''].filter(Boolean).join(' · ')}</div>
+      ${_paraHtml(l)}
       ${l.tipo==='brik'?_brikInfoHtml(l):''}<div style="margin-top:3px;${enProceso?'display:none':''}">Restante: <b>${restPal} pal.</b> · <b>${restCaj} cajas</b>${agotado?' · <span style="color:var(--status-load)">agotado</span>':''}</div>
     </div>`;
   }).join('');

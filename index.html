@@ -2792,6 +2792,10 @@ input[type=password],input[type=email]{text-transform:none}
           <div class="fg"><label>🟧 Palets de bandejas</label><input id="pr-pb" type="number" min="0" inputmode="numeric" placeholder="0" oninput="prBrikCalc()"></div>
           <div class="fg"><label>🗂️ Bandejas sueltas</label><input id="pr-bs" type="number" min="0" inputmode="numeric" placeholder="0" oninput="prBrikCalc()"></div>
         </div>
+        <div class="fgrid">
+          <div class="fg"><label>🗂️ Bandejas incompletas</label><input id="pr-bi" type="number" min="0" inputmode="numeric" placeholder="0" oninput="prBrikCalc()"></div>
+          <div class="fg"><label>🧃 Bricks en ellas</label><input id="pr-bri" type="number" min="0" inputmode="numeric" placeholder="0" oninput="prBrikCalc()"></div>
+        </div>
         <div class="fgrid full">
           <div class="fg"><label>🧮 Total bricks</label><input id="pr-totbricks" readonly tabindex="-1" placeholder="0" style="font-weight:800"></div>
         </div>
@@ -5115,10 +5119,10 @@ const _fmtN = n => (n||0).toLocaleString('es-ES');
 // Lee los datos de bandejas del formulario (respeta una merma ya corregida si no se tocan las bandejas)
 function _bricksForm() {
   const v = id => parseFloat(document.getElementById(id).value)||0;
-  const f = { bpb:v('pr-bpb'), bpp:v('pr-bpp'), pb:v('pr-pb'), bs:v('pr-bs') };
-  f.total = f.bpb*(f.bpp*f.pb+f.bs);
+  const f = { bpb:v('pr-bpb'), bpp:v('pr-bpp'), pb:v('pr-pb'), bs:v('pr-bs'), bi:v('pr-bi'), bri:v('pr-bri') };
+  f.total = f.bpb*(f.bpp*f.pb+f.bs) + f.bri;
   const prev = editLoteId ? producciones.find(x=>String(x.id)===String(editLoteId)) : null;
-  if (prev && prev.tipo==='brik' && f.bpb==prev.bricksPorBandeja && f.bpp==prev.bandejasPorPalet && f.pb==prev.paletsBandejas && f.bs==(parseFloat(prev.bandejasSueltas)||0))
+  if (prev && prev.tipo==='brik' && f.bpb==prev.bricksPorBandeja && f.bpp==prev.bandejasPorPalet && f.pb==prev.paletsBandejas && f.bs==(parseFloat(prev.bandejasSueltas)||0) && f.bi==(parseFloat(prev.bandejasIncompletas)||0) && f.bri==(parseFloat(prev.bricksIncompletos)||0))
     f.total = parseFloat(prev.totalBricks)||f.total;
   return f;
 }
@@ -5161,7 +5165,7 @@ function _brikInfoHtml(l) {
   const F = { llenado:'1 · Llenado', etiquetado:'2 · Etiquetado', encajado:'3 · Encajado' };
   const det = l.fase==='encajado'
     ? (l.bricksPorCaja ? ' · '+l.bricksPorCaja+' bricks/caja' : '')
-    : ` · ${l.paletsBandejas||0} palets × ${l.bandejasPorPalet||0} bandejas × ${l.bricksPorBandeja||0} bricks${l.bandejasSueltas?' + '+l.bandejasSueltas+' bandejas':''}`;
+    : ` · ${l.paletsBandejas||0} palets × ${l.bandejasPorPalet||0} bandejas × ${l.bricksPorBandeja||0} bricks${l.bandejasSueltas?' + '+l.bandejasSueltas+' bandejas':''}${l.bricksIncompletos?' + '+(l.bandejasIncompletas?l.bandejasIncompletas+' incompletas con ':'')+l.bricksIncompletos+' bricks':''}`;
   const btn = l.fase==='encajado' ? '' : ` <button class="tbl-btn" onclick="avanzarFaseLote('${l.id}')" style="font-size:11px;padding:3px 8px;margin-left:4px">Avanzar fase ▶</button>`;
   return `<div style="margin-top:3px">🧃 <b>${F[l.fase]||'—'}</b>: <b>${_fmtN(parseFloat(l.totalBricks)||0)} bricks</b>${det}${btn}</div>`;
 }
@@ -5207,7 +5211,7 @@ window.avanzarFaseLote = avanzarFaseLote; window.fbCalc = fbCalc;
 window.cerrarFaseBrik = cerrarFaseBrik; window.confirmarFaseBrik = confirmarFaseBrik;
 
 function openProduccionModal(){
-  ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   document.getElementById('pr-fecha').value = new Date().toISOString().slice(0,10);
   _setModoEdicion(null);
   renderProduccionList();
@@ -5230,7 +5234,7 @@ async function guardarProduccion(){
   if (esBrik) {
     const f = _bricksForm(), fase = document.getElementById('pr-fase').value;
     if (f.total<=0) { toast('⚠️ Indica bricks por bandeja, bandejas por palet y palets'); return; }
-    extra = { tipo:'brik', fase, bricksPorBandeja:f.bpb, bandejasPorPalet:f.bpp, paletsBandejas:f.pb, bandejasSueltas:f.bs, totalBricks:f.total, bricksPorCaja:0, bricksSueltos:0 };
+    extra = { tipo:'brik', fase, bricksPorBandeja:f.bpb, bandejasPorPalet:f.bpp, paletsBandejas:f.pb, bandejasSueltas:f.bs, bandejasIncompletas:f.bi, bricksIncompletos:f.bri, totalBricks:f.total, bricksPorCaja:0, bricksSueltos:0 };
     palets = 0; cajas = 0; cpp = 0;
     if (fase==='encajado') {
       const bpc = parseFloat(document.getElementById('pr-bpc').value)||0, k = parseFloat(document.getElementById('pr-cppb').value)||0;
@@ -5262,7 +5266,7 @@ async function guardarProduccion(){
     createdAt: prev ? (prev.createdAt||Date.now()) : Date.now()
   };
   await fbSaveProduccion(lote);
-  ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   toast(prev ? '💾 Lote actualizado' : '🏭 Lote registrado'); _setModoEdicion(null);
   if(!prev && !(lote.tipo==='brik' && lote.fase!=='encajado')) preguntarPedidosLote(lote);
   renderProduccionList();
@@ -5358,13 +5362,13 @@ function editarLoteProduccion(id){
   set('pr-fecha',l.fecha); set('pr-notas',l.notas);
   _setModoEdicion(l.id);
   set('pr-tipo', l.tipo==='brik'?'brik':'normal');
-  if (l.tipo==='brik') { set('pr-fase',l.fase||'llenado'); set('pr-bpb',l.bricksPorBandeja); set('pr-bpp',l.bandejasPorPalet); set('pr-pb',l.paletsBandejas); set('pr-bs',l.bandejasSueltas); set('pr-bpc',l.bricksPorCaja||''); set('pr-cppb',l.cajasPorPalet||''); }
+  if (l.tipo==='brik') { set('pr-fase',l.fase||'llenado'); set('pr-bpb',l.bricksPorBandeja); set('pr-bpp',l.bandejasPorPalet); set('pr-pb',l.paletsBandejas); set('pr-bs',l.bandejasSueltas); set('pr-bi',l.bandejasIncompletas); set('pr-bri',l.bricksIncompletos); set('pr-bpc',l.bricksPorCaja||''); set('pr-cppb',l.cajasPorPalet||''); }
   prTipoChange();
   document.querySelector('#mProduccion .modal-scroll')?.scrollTo({top:0,behavior:'smooth'});
   toast('✏️ Editando lote (cantidades fabricadas)');
 }
 function cancelarEdicionLote(){
-  ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   _setModoEdicion(null);
 }
 window.editarLoteProduccion = editarLoteProduccion;

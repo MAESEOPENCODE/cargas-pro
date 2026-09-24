@@ -2421,6 +2421,8 @@ input[type=password],input[type=email]{text-transform:none}
           </div>
           <div class="fgrid" style="margin-top:8px">
             <div class="fg"><label>📦 Cajas</label><input id="f-cajas" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
+            <div class="fg"><label>📦 Cajas por palet</label><input id="f-cpp" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
+            <div class="fg"><label>🧮 Total cajas</label><input id="f-totalcajas" placeholder="0" readonly tabindex="-1" style="font-weight:800"></div>
           </div>
           <div id="aviso-stock" style="display:none;margin-top:6px;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:600"></div>
           <div class="fgrid" style="margin-top:8px">
@@ -2461,30 +2463,6 @@ input[type=password],input[type=email]{text-transform:none}
         <div class="fg">
           <label>📋 Nº Albarán</label>
           <input id="f-albaran-pedido" placeholder="Ej: A26/1765" autocomplete="off" style="font-family:var(--font-mono);letter-spacing:.5px">
-        </div>
-      </div>
-      <!-- ══ INTERRUPTOR: ¿lleva líneas de pedido? ══ -->
-      <div class="fgrid full" style="margin-top:10px">
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2);cursor:pointer;padding:4px 0">
-          <input type="checkbox" id="f-usa-lineas" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer" onchange="toggleUsaLineas()">
-          <span>📑 Mostrar líneas de pedido (aduana / exportación)</span>
-        </label>
-      </div>
-      <div id="bloque-lineas-wrap" style="display:none">
-        <!-- ══ LÍNEAS DE PEDIDO (colapsable) ══ -->
-        <div class="fsec fsec-toggle" id="fsec-aduana" onclick="toggleAduana()" style="cursor:pointer;user-select:none;justify-content:space-between">
-          <span>&#9776; LÍNEAS DE PEDIDO</span>
-          <span id="aduana-arrow" style="font-size:12px;transition:transform .2s;color:#F5A623">&#9660;</span>
-        </div>
-        <div id="bloque-aduana" style="display:none">
-          <!-- datalists compartidos para memoria -->
-          <datalist id="dl-marcas"></datalist>
-          <datalist id="dl-bultos"></datalist>
-          <datalist id="dl-embalaje"></datalist>
-          <datalist id="dl-naturaleza"></datalist>
-          <datalist id="dl-nestadistico"></datalist>
-          <div id="lineas-container"></div>
-          <button type="button" onclick="addLineaPedido()" style="margin-top:8px;width:100%;padding:10px;border:2px dashed var(--border2);border-radius:var(--r-sm);background:var(--surface2);color:var(--t2);font-family:var(--font-body);font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.4px;text-transform:uppercase;transition:all .15s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--t2)'">＋ Añadir línea</button>
         </div>
       </div>
       <div class="fsec">Estado y notas</div>
@@ -3140,19 +3118,6 @@ function updateLists() {
   const allT = [...new Set([...baseT,...trans])];
   ['dl-trans','dl-trans2'].forEach(id => { const el=document.getElementById(id); if(el) el.innerHTML=allT.map(t=>`<option value="${t}">`).join(''); });
 
-  // ── Datalists datos aduaneros (memoria automática desde lineas) ──
-  const todasLineas = pedidos.flatMap(p => p.lineas||[]);
-  const marcasArr   = [...new Set(todasLineas.map(l=>l.marcas).filter(Boolean))];
-  const bultosArr   = [...new Set(todasLineas.map(l=>l.bultos).filter(Boolean))];
-  const embalajeArr = [...new Set(todasLineas.map(l=>l.embalaje).filter(Boolean))];
-  const naturArr    = [...new Set(todasLineas.map(l=>l.naturaleza).filter(Boolean))];
-  const nestArr     = [...new Set(todasLineas.map(l=>l.nestadistico).filter(Boolean))];
-  const _setDl = (id, arr) => { const el=document.getElementById(id); if(el) el.innerHTML=arr.map(v=>`<option value="${v}">`).join(''); };
-  _setDl('dl-marcas', marcasArr);
-  _setDl('dl-bultos', bultosArr);
-  _setDl('dl-embalaje', [...new Set(['Palet','Caja','Bolsa','Bandeja','Granel',...embalajeArr])]);
-  _setDl('dl-naturaleza', naturArr);
-  _setDl('dl-nestadistico', nestArr);
   const gs=document.getElementById('fGrupo'); const gv=gs.value;
   gs.innerHTML='<option value="">Todos los clientes</option>'+grupos.map(g=>`<option value="${g}"${g===gv?' selected':''}>${g}</option>`).join('');
   const ms=document.getElementById('fMuelle'); const mv=ms.value;
@@ -3267,12 +3232,11 @@ function cardHtmlHistorico(p) {
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
       ${productosExtraHtml(p)}
-      ${lineasPedidoHtml(p)}
       <div class="info-row">
         ${p.mat1?`<div class="info-block md"><div class="info-label">🚛 Tractora</div><span class="tag tag-mat1">${p.mat1}</span></div>`:''}
         ${p.mat2?`<div class="info-block md"><div class="info-label">🔗 Remolque</div><span class="tag tag-mat2">${p.mat2}</span></div>`:''}
@@ -3329,6 +3293,10 @@ function paletsInfoHtml(p) {
   return html;
 }
 
+function totalCajasHtml(p) {
+  const t = parseInt(p.totalCajas)||0;
+  return (p.cpp && t) ? `<div class="info-block sm"><div class="info-label">Total cajas</div><span class="tag tag-palets">${t}</span></div>` : '';
+}
 // Progreso de cajas cargadas vs. total del pedido (análogo a paletsInfoHtml)
 function cajasInfoHtml(p) {
   const total = parseInt(p.cajas)||0;
@@ -3342,25 +3310,6 @@ function cajasInfoHtml(p) {
 }
 
 // Renderiza filas adicionales de info-row para los productos extra de un pedido (multi-producto)
-// Renderiza las líneas de pedido (aduana/exportación) dentro de la tarjeta, si el pedido las tiene
-function lineasPedidoHtml(p) {
-  const lineas = p.lineas||[];
-  if (!lineas.length) return '';
-  const filas = lineas.map((l,i) => {
-    const partes = [
-      l.marcas?`Marcas: ${l.marcas}`:'',
-      l.bultos?`Bultos: ${l.bultos}`:'',
-      l.embalaje?`Embalaje: ${l.embalaje}`:'',
-      l.naturaleza?`Naturaleza: ${l.naturaleza}`:'',
-      l.nestadistico?`N.Est: ${l.nestadistico}`:''
-    ].filter(Boolean).join(' · ');
-    if (!partes) return '';
-    return `<div style="font-size:11.5px;color:var(--t2);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;margin-top:4px"><b style="color:var(--t3)">L${i+1}</b> · ${partes}</div>`;
-  }).join('');
-  if (!filas) return '';
-  return `<div style="margin-top:6px"><div class="info-label">📑 Líneas de pedido</div>${filas}</div>`;
-}
-
 // Progreso de palets/cajas cargados de un producto extra (mismo criterio que paletsInfoHtml/cajasInfoHtml)
 function _progresoExtraHtml(total, cargado, unidad) {
   const t = parseInt(total)||0;
@@ -3412,12 +3361,11 @@ function cardHtml(p, esCamionCompartido=false) {
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
       ${productosExtraHtml(p)}
-      ${lineasPedidoHtml(p)}
       <div class="info-row">
         ${p.mat1?`<div class="info-block md"><div class="info-label">🚛 Tractora</div><span class="tag tag-mat1">${p.mat1}</span></div>`:''}
         ${p.mat2?`<div class="info-block md"><div class="info-label">🔗 Remolque</div><span class="tag tag-mat2">${p.mat2}</span></div>`:''}
@@ -3457,28 +3405,6 @@ function renderTable(filtered) {
       ? `<tr class="camion-tbl-header"><td colspan="${colSpanCab}" style="padding:5px 12px;background:linear-gradient(90deg,rgba(245,166,35,0.18) 0%,transparent 100%);border-left:3px solid #F5A623;font-size:10px;font-weight:700;color:#F5A623;letter-spacing:.5px;text-transform:uppercase">🚛 ${p.mat1.trim()}${p.mat2?' · '+p.mat2.trim():''} — mismo camión</td></tr>`
       : '';
     _lastMat_tbl = _esCamion ? _mat_tbl : null;
-    const lineas = p.lineas||[];
-    const colSpan = showStatus ? 14 : 13;
-    const lineasRow = lineas.length ? `<tr class="lineas-row">
-      <td colspan="${colSpan}" style="padding:0 10px 8px 32px;background:#FAFAF7;border-bottom:1px solid #E8E0CC">
-        <table style="width:100%;border-collapse:collapse;font-size:9px;margin-top:4px">
-          <thead><tr>
-            <th style="padding:3px 7px;background:#2A2E38;color:#F5A623;text-align:left;font-size:8px;letter-spacing:.8px">MARCAS</th>
-            <th style="padding:3px 7px;background:#2A2E38;color:#F5A623;text-align:left;font-size:8px;letter-spacing:.8px">BULTOS</th>
-            <th style="padding:3px 7px;background:#2A2E38;color:#F5A623;text-align:left;font-size:8px;letter-spacing:.8px">EMBALAJE</th>
-            <th style="padding:3px 7px;background:#2A2E38;color:#F5A623;text-align:left;font-size:8px;letter-spacing:.8px">NATURALEZA</th>
-            <th style="padding:3px 7px;background:#2A2E38;color:#F5A623;text-align:left;font-size:8px;letter-spacing:.8px">N.ESTADÍSTICO</th>
-          </tr></thead>
-          <tbody>${lineas.map((l,i)=>`<tr style="background:${i%2?'#F2EFE8':'#FAFAF7'}">
-            <td style="padding:3px 7px;border-bottom:1px solid #E0D8C8;font-weight:700">${l.marcas||'—'}</td>
-            <td style="padding:3px 7px;border-bottom:1px solid #E0D8C8">${l.bultos||'—'}</td>
-            <td style="padding:3px 7px;border-bottom:1px solid #E0D8C8">${l.embalaje||'—'}</td>
-            <td style="padding:3px 7px;border-bottom:1px solid #E0D8C8">${l.naturaleza||'—'}</td>
-            <td style="padding:3px 7px;border-bottom:1px solid #E0D8C8;font-family:monospace">${l.nestadistico||'—'}</td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </td>
-    </tr>` : '';
     const rowHtml = `<tr>
     <td style="color:var(--t3);font-weight:700">${p.num||'—'}</td>
     <td style="font-weight:700;color:var(--t1)">${p.grupo||'—'}</td>
@@ -3499,7 +3425,7 @@ function renderTable(filtered) {
       ${cargarBtn}
       <button class="tbl-btn tbl-del" data-action="del" data-id="${p.id}" title="Eliminar">🗑️</button>
     </td>
-  </tr>${lineasRow}`;
+  </tr>`;
     return camionHeaderRow + rowHtml;
   }).join('');
   const thStatus = showStatus ? `<th>Estado</th>` : '';
@@ -3527,25 +3453,13 @@ function openPedidoModal(idOrNull) {
   // Mostrar botón Copiar solo cuando se edita un pedido existente
   const btnCopiar = document.getElementById('btnCopiarPedido');
   if (btnCopiar) btnCopiar.style.display = p ? '' : 'none';
-  ['num','grupo','producto','ref','uds','cajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'].forEach(k => {
+  ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'].forEach(k => {
     const fid = k==='hora_salida'?'f-hora-salida':'f-'+k;
     const el = document.getElementById(fid); if(el) el.value = p?.[k]||'';
   });
   actualizarAvisoStock();
   // Cargar productos extra (multi-producto)
   cargarProductosExtra(p?.productosExtra||[]);
-  // Cargar líneas de pedido
-  const lineas = p?.lineas||[];
-  cargarLineasPedido(lineas);
-  document.getElementById('f-usa-lineas').checked = !!(p?.usaLineas || lineas.length > 0);
-  toggleUsaLineas();
-  if(lineas.length > 0){
-    const bl=document.getElementById('bloque-aduana'); if(bl) bl.style.display='';
-    const ar=document.getElementById('aduana-arrow'); if(ar) ar.style.transform='rotate(180deg)';
-  } else {
-    const bl=document.getElementById('bloque-aduana'); if(bl) bl.style.display='none';
-    const ar=document.getElementById('aduana-arrow'); if(ar) ar.style.transform='';
-  }
   document.getElementById('f-status').value = p?.status||'pendiente';
   document.getElementById('f-tipolinea').value = p?.tipoLinea||'botella';
   document.getElementById('f-fase').value = p?.faseBrik||'llenado';
@@ -3601,7 +3515,7 @@ function duplicarPedido() {
       const btnCopiar = document.getElementById('btnCopiarPedido');
       if (btnCopiar) btnCopiar.style.display = 'none';
       // Rellenar campos
-      const campos = ['num','grupo','producto','ref','uds','cajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'];
+      const campos = ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'];
       campos.forEach(k => {
         const fid = k==='hora_salida' ? 'f-hora-salida' : 'f-'+k;
         const el = document.getElementById(fid);
@@ -3619,18 +3533,7 @@ function duplicarPedido() {
       if (albaranEl) albaranEl.value = '';
       const blAlb = document.getElementById('bloque-albaran-pedido');
       if (blAlb) blAlb.style.display = 'none';
-      // Líneas aduaneras y productos extra
-      cargarLineasPedido(copia.lineas || []);
       cargarProductosExtra(copia.productosExtra || []);
-      document.getElementById('f-usa-lineas').checked = !!(copia.usaLineas || (copia.lineas||[]).length > 0);
-      toggleUsaLineas();
-      if ((copia.lineas||[]).length > 0) {
-        const bl = document.getElementById('bloque-aduana'); if(bl) bl.style.display='';
-        const ar = document.getElementById('aduana-arrow'); if(ar) ar.style.transform='rotate(180deg)';
-      } else {
-        const bl = document.getElementById('bloque-aduana'); if(bl) bl.style.display='none';
-        const ar = document.getElementById('aduana-arrow'); if(ar) ar.style.transform='';
-      }
       actualizarVisibilidadAlbaran();
       const warnEl = document.getElementById('ref-dup-warn');
       if (warnEl) warnEl.style.display = 'none';
@@ -3662,98 +3565,8 @@ function actualizarVisibilidadAlbaran(){
 }
 window.actualizarVisibilidadAlbaran = actualizarVisibilidadAlbaran;
 
-// Muestra u oculta por completo la sección de líneas de pedido (aduana/exportación)
-function toggleUsaLineas() {
-  const chk  = document.getElementById('f-usa-lineas');
-  const wrap = document.getElementById('bloque-lineas-wrap');
-  if (!chk || !wrap) return;
-  wrap.style.display = chk.checked ? '' : 'none';
-  if (!chk.checked) {
-    // Al desactivar, se limpian las líneas para que no queden datos ocultos sin querer
-    cargarLineasPedido([]);
-    const bl=document.getElementById('bloque-aduana'); if(bl) bl.style.display='none';
-    const ar=document.getElementById('aduana-arrow'); if(ar) ar.style.transform='';
-  }
-}
-window.toggleUsaLineas = toggleUsaLineas;
-
-function toggleAduana() {
-  const bloque = document.getElementById('bloque-aduana');
-  const arrow  = document.getElementById('aduana-arrow');
-  const open   = bloque.style.display === '';
-  bloque.style.display = open ? 'none' : '';
-  arrow.style.transform = open ? '' : 'rotate(180deg)';
-  // Si se abre vacío, añadir la primera línea automáticamente
-  if(!open && document.getElementById('lineas-container').children.length === 0){
-    addLineaPedido();
-  }
-}
-window.toggleAduana = toggleAduana;
-
-// ── Sistema de líneas de pedido ──
-let _lineaIdx = 0;
-
-function addLineaPedido(datos) {
-  const idx = _lineaIdx++;
-  const container = document.getElementById('lineas-container');
-  const num = container.children.length + 1;
-  const v = datos || {};
-  const div = document.createElement('div');
-  div.className = 'linea-pedido';
-  div.dataset.idx = idx;
-  div.innerHTML = `
-    <div class="linea-header">
-      <span class="linea-num">LÍNEA ${num}</span>
-      <button type="button" class="linea-del" onclick="removeLineaPedido(this)" title="Eliminar línea">✕</button>
-    </div>
-    <div class="fgrid">
-      <div class="fg"><label>Marcas</label><input class="ln-marcas" placeholder="EURO, ABC..." list="dl-marcas" autocomplete="off" value="${_esc(v.marcas)}"></div>
-      <div class="fg"><label>Bultos</label><input class="ln-bultos" placeholder="Nº bultos" inputmode="numeric" list="dl-bultos" autocomplete="off" value="${_esc(v.bultos)}"></div>
-    </div>
-    <div class="fgrid" style="margin-top:8px">
-      <div class="fg"><label>Clase embalaje</label><input class="ln-embalaje" placeholder="Palet, Caja..." list="dl-embalaje" autocomplete="off" value="${_esc(v.embalaje)}"></div>
-      <div class="fg"><label>Naturaleza mercancía</label><input class="ln-naturaleza" placeholder="Fruta fresca..." list="dl-naturaleza" autocomplete="off" value="${_esc(v.naturaleza)}"></div>
-    </div>
-    <div class="fgrid full" style="margin-top:8px">
-      <div class="fg"><label>N. Estadístico</label><input class="ln-nestadistico" placeholder="0805100090" list="dl-nestadistico" autocomplete="off" style="font-family:var(--font-mono);letter-spacing:.5px" value="${_esc(v.nestadistico)}"></div>
-    </div>`;
-  container.appendChild(div);
-  _renumerarLineas();
-}
-
-function removeLineaPedido(btn) {
-  btn.closest('.linea-pedido').remove();
-  _renumerarLineas();
-}
-
-function _renumerarLineas() {
-  document.querySelectorAll('#lineas-container .linea-pedido').forEach((el, i) => {
-    const span = el.querySelector('.linea-num');
-    if(span) span.textContent = 'LÍNEA ' + (i+1);
-  });
-}
-
 function _esc(v){ return (v==null?'':String(v)).replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-function getLineasPedido() {
-  return [...document.querySelectorAll('#lineas-container .linea-pedido')].map(el => ({
-    marcas:      el.querySelector('.ln-marcas')?.value.trim()||'',
-    bultos:      el.querySelector('.ln-bultos')?.value.trim()||'',
-    embalaje:    el.querySelector('.ln-embalaje')?.value.trim()||'',
-    naturaleza:  el.querySelector('.ln-naturaleza')?.value.trim()||'',
-    nestadistico:el.querySelector('.ln-nestadistico')?.value.trim()||'',
-  })).filter(l => l.marcas||l.bultos||l.embalaje||l.naturaleza||l.nestadistico);
-}
-
-function cargarLineasPedido(lineas) {
-  const container = document.getElementById('lineas-container');
-  container.innerHTML = '';
-  _lineaIdx = 0;
-  (lineas||[]).forEach(l => addLineaPedido(l));
-}
-
-window.addLineaPedido = addLineaPedido;
-window.removeLineaPedido = removeLineaPedido;
 
 // ── Sistema de productos extra (multi-producto por pedido) ──
 let _productoIdx = 0;
@@ -3781,6 +3594,8 @@ function addProductoExtra(datos) {
     </div>
     <div class="fgrid" style="margin-top:8px">
       <div class="fg"><label>📦 Cajas</label><input class="pe-cajas" placeholder="0" inputmode="numeric" value="${_esc(v.cajas)}" oninput="actualizarAvisoStock()"></div>
+      <div class="fg"><label>📦 Cajas por palet</label><input class="pe-cpp" placeholder="0" inputmode="numeric" value="${_esc(v.cpp)}" oninput="actualizarAvisoStock()"></div>
+      <div class="fg"><label>🧮 Total cajas</label><input class="pe-totalcajas" placeholder="0" readonly tabindex="-1" style="font-weight:800" value="${_esc(v.totalCajas)}"></div>
       <div class="fg"><label>🟫 Euros</label><input class="pe-europalets" placeholder="0" type="number" min="0" max="999" maxlength="3" inputmode="numeric" value="${_esc(v.europalets)}"></div>
     </div>
     <div class="fgrid" style="margin-top:8px">
@@ -3798,6 +3613,8 @@ function getProductosExtra() {
     producto:    el.querySelector('.pe-producto')?.value.trim()||'',
     uds:         el.querySelector('.pe-uds')?.value.trim()||'',
     cajas:       el.querySelector('.pe-cajas')?.value.trim()||'',
+    cpp:         el.querySelector('.pe-cpp')?.value.trim()||'',
+    totalCajas:  el.querySelector('.pe-totalcajas')?.value.trim()||'',
     europalets:  parseInt(el.querySelector('.pe-europalets')?.value)||0,
     pais:        el.querySelector('.pe-pais')?.value.trim()||'',
     udsCargados: parseFloat(el.dataset.udscargados)||0,
@@ -3816,7 +3633,18 @@ window.addProductoExtra = addProductoExtra;
 window.removeProductoExtra = removeProductoExtra;
 
 // Compara palets/cajas solicitados en el pedido (producto principal + productos extra) contra el stock disponible
+// Total cajas = palets × cajas por palet + cajas sueltas (se calcula solo)
+function _totCajas(pal,cpp,caj){ return (parseFloat(pal)||0)*(parseFloat(cpp)||0)+(parseFloat(caj)||0); }
+function calcTotalesCajas() {
+  const g=id=>document.getElementById(id);
+  if (g('f-totalcajas')) g('f-totalcajas').value = _totCajas(g('f-uds')?.value,g('f-cpp')?.value,g('f-cajas')?.value)||'';
+  document.querySelectorAll('#productos-extra-container .producto-extra').forEach(el=>{
+    const t=el.querySelector('.pe-totalcajas');
+    if (t) t.value = _totCajas(el.querySelector('.pe-uds')?.value,el.querySelector('.pe-cpp')?.value,el.querySelector('.pe-cajas')?.value)||'';
+  });
+}
 function actualizarAvisoStock() {
+  calcTotalesCajas();
   const aviso = document.getElementById('aviso-stock');
   if (!aviso) return;
   const lineas = [
@@ -3890,7 +3718,7 @@ async function savePedido() {
   const p = {
     id, createdAt: editId ? (pedidos.find(x=>x.id===editId)?.createdAt || Date.now()) : Date.now(),
     num:get('f-num'), grupo:get('f-grupo'), producto:get('f-producto'), ref:get('f-ref'),
-    uds:get('f-uds'), cajas:get('f-cajas'), pais:get('f-pais'),
+    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), pais:get('f-pais'),
     europalets: parseInt(get('f-europalets'))||0,
     mat1:get('f-mat1').toUpperCase(), mat2:get('f-mat2').toUpperCase(),
     hora:document.getElementById('f-hora').value,
@@ -3903,8 +3731,6 @@ async function savePedido() {
     notas:get('f-notas'),
     ec: parseInt(get('f-ec'))||0,
     ed: parseInt(get('f-ed'))||0,
-    lineas: getLineasPedido(),
-    usaLineas: document.getElementById('f-usa-lineas')?.checked || false,
     productosExtra: getProductosExtra(),
   };
   if(!p.grupo){ toast('⚠️ Indica el cliente'); return; }
@@ -3942,11 +3768,8 @@ async function _doSavePedido(p) {
 
 function limpiarPedidoModal() {
   confirm2('🗑','¿Limpiar formulario?','Se borrarán todos los campos','Limpiar','',()=>{
-    ['num','grupo','producto','ref','uds','cajas','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
+    ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
     const avisoStockEl = document.getElementById('aviso-stock'); if(avisoStockEl) avisoStockEl.style.display='none';
-    cargarLineasPedido([]);
-    const usaLineasChk = document.getElementById('f-usa-lineas'); if(usaLineasChk) usaLineasChk.checked=false;
-    toggleUsaLineas();
     cargarProductosExtra([]);
     const sinInt = document.getElementById('f-sin-intercambio'); if(sinInt) sinInt.checked=false;
     const fAlb = document.getElementById('f-albaran-pedido'); if(fAlb) fAlb.value='';
@@ -4531,19 +4354,6 @@ async function compartirTabla() {
     if(p.muelle)      tiempos.push(`🚪 Muelle ${p.muelle}`);
     if(tiempos.length) lines.push(`   ${tiempos.join(' · ')}`);
     if(p.notas)       lines.push(`   💬 ${p.notas}`);
-    const lineas = p.lineas||[];
-    if(lineas.length){
-      lines.push(`   📋 Líneas:`);
-      lineas.forEach((l,i)=>{
-        const parts=[];
-        if(l.marcas)      parts.push(`Marcas: ${l.marcas}`);
-        if(l.bultos)      parts.push(`Bultos: ${l.bultos}`);
-        if(l.embalaje)    parts.push(`Emb.: ${l.embalaje}`);
-        if(l.naturaleza)  parts.push(`Nat.: ${l.naturaleza}`);
-        if(l.nestadistico)parts.push(`N.Est.: ${l.nestadistico}`);
-        lines.push(`      ${i+1}. ${parts.join(' · ')}`);
-      });
-    }
     lines.push('');
   });
   if(conTotales) {

@@ -2710,6 +2710,22 @@ input[type=password],input[type=email]{text-transform:none}
   </div>
 </div>
 
+<!-- MODAL: ¿ESTA PRODUCCIÓN ES PARA ALGÚN PEDIDO? -->
+<div class="modal-bg" id="mAsigPed" onclick="if(event.target===this)cerrarAsigPedidos()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">📋 ¿Es para algún pedido?</div>
+      <div class="modal-subtitle" id="asig-sub"></div>
+    </div>
+    <div class="modal-scroll"><div id="asig-lista" style="display:flex;flex-direction:column;gap:8px"></div></div>
+    <div class="modal-footer">
+      <button class="mbtn mbtn-cancel" onclick="cerrarAsigPedidos()">No, es para stock</button>
+      <button class="mbtn mbtn-save" onclick="confirmarAsigPedidos()">Asignar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL PRODUCCIÓN / STOCK -->
 <div class="modal-bg" id="mProduccion" onclick="if(event.target===this)closeProduccionModal()">
   <div class="modal">
@@ -2838,11 +2854,11 @@ function stockDisponible(articulo, formato) {
   return { palets, cajas };
 }
 // Plan FIFO (caducidad más próxima): coge los palets pedidos y las cajas necesarias, rompiendo palet si hace falta
-function planConsumo(articulo, pal, caj, formato) {
+function planConsumo(articulo, pal, caj, formato, pedidoId) {
   const key=(articulo||'').trim().toUpperCase();
   let rp=parseFloat(pal)||0, rc=parseFloat(caj)||0; const plan=[];
   producciones.filter(l=>(l.articulo||'').trim().toUpperCase()===key && _fmtOk(l,formato))
-    .sort((a,b)=>(a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'))
+    .sort((a,b)=>{ const r=x=>pedidoId&&(x.pedidosRef||[]).some(q=>String(q.id)===String(pedidoId))?0:1; return r(a)-r(b) || (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'); })
     .forEach(l=>{
       if (rp<=0 && rc<=0) return;
       const d=_dispLote(l);
@@ -2880,8 +2896,8 @@ async function fbDeleteProduccion(id) {
 }
 
 // Consume stock FIFO para un artículo. Devuelve [{id, lote, palets, cajas, caducidad}]
-async function consumirStock(articulo, palets, cajas, formato) {
-  const { plan } = planConsumo(articulo, palets, cajas, formato); const usados=[];
+async function consumirStock(articulo, palets, cajas, formato, pedidoId) {
+  const { plan } = planConsumo(articulo, palets, cajas, formato, pedidoId); const usados=[];
   for (const {l,up,uc} of plan) {
     await fbSaveProduccion({ ...l,
       paletsConsumidos:(parseFloat(l.paletsConsumidos)||0)+up,
@@ -3676,7 +3692,7 @@ function actualizarAvisoStock() {
     .filter(l => l.articulo && producciones.some(p => (p.articulo||'').trim().toUpperCase() === l.articulo.toUpperCase()))
     .map(l => {
       const s = stockDisponible(l.articulo, l.formato);
-      const pc = planConsumo(l.articulo, l.pal, l.caj, l.formato); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
+      const pc = planConsumo(l.articulo, l.pal, l.caj, l.formato, editId); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
       const sinCpp = producciones.some(x => (x.articulo||'').trim().toUpperCase()===l.articulo.toUpperCase() && !(parseFloat(x.cajasPorPalet)>0)); return { ...l, s, falta, sinCpp };
     });
   if (!filas.length) { aviso.style.display = 'none'; return; }
@@ -3923,7 +3939,7 @@ async function confirmarCarga() {
 
     // Descontar stock (FIFO por caducidad) del artículo de esta línea
     if (producto && (estaPal>0 || estaCaj>0)) {
-      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'');
+      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'', p.id);
       usados.forEach(u => u.producto = producto);
       lotesConsumidosTotal = lotesConsumidosTotal.concat(usados);
     }
@@ -4008,14 +4024,6 @@ function terminarPedido(id) {
   const p=pedidos.find(x=>String(x.id)===String(id)); if(!p) return;
   fbSave({...p, status:'terminado'});
   toast('✅ Pedido marcado como Terminado');
-  // Botella = línea continua sin fases intermedias: al terminar es el momento de dar de alta el lote
-  if (p.tipoLinea !== 'brik') {
-    setTimeout(() => {
-      confirm2('🏭','¿Dar de alta este lote en Stock?',
-        `${p.producto||'Producto'} · ${p.uds?p.uds+' pal.':''}${p.uds&&p.cajas?' · ':''}${p.cajas?p.cajas+' cajas':''}`,
-        'Registrar lote','blue', () => abrirProduccionDesdePedido(p));
-    }, 300);
-  }
 }
 
 // Avanza la fase de producción de un pedido tipo Brik (Llenado → Esp. etiquetado → Etiquetado → Encajado)
@@ -4027,30 +4035,9 @@ function avanzarFase(id) {
   const nuevaFase = ORDEN_FASE_BRIK[i+1];
   fbSave({...p, faseBrik: nuevaFase});
   toast('🧃 Fase actualizada: ' + (FASE_BRIK_LABEL[nuevaFase]||nuevaFase));
-  // Al llegar a Encajado/Paletizado, se ofrece dar de alta el lote producido directamente en Stock
-  if (nuevaFase === 'encajado') {
-    setTimeout(() => {
-      confirm2('🏭','¿Dar de alta este lote en Stock?',
-        `${p.producto||'Producto'} · ${p.uds?p.uds+' pal.':''}${p.uds&&p.cajas?' · ':''}${p.cajas?p.cajas+' cajas':''}`,
-        'Registrar lote','blue', () => abrirProduccionDesdePedido(p));
-    }, 300);
-  }
 }
 window.avanzarFase = avanzarFase;
 
-// Abre el modal de Producción precargado con los datos del pedido (artículo, palets, cajas)
-// para dar de alta el lote sin tener que teclearlos de nuevo
-function abrirProduccionDesdePedido(p) {
-  openProduccionModal();
-  document.getElementById('pr-articulo').value = p.producto || '';
-  document.getElementById('pr-palets').value = p.uds || '';
-  document.getElementById('pr-cajas').value = p.cajas || '';
-  document.getElementById('pr-formato').value = p.formato || '';
-  document.getElementById('pr-cpp').value = p.cpp || '';
-  const loteEl = document.getElementById('pr-lote');
-  if (loteEl) loteEl.focus();
-}
-window.abrirProduccionDesdePedido = abrirProduccionDesdePedido;
 
 
 function delPedido(id) {
@@ -5106,6 +5093,7 @@ async function guardarProduccion(){
   await fbSaveProduccion(lote);
   ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   toast(prev ? '💾 Lote actualizado' : '🏭 Lote registrado'); _setModoEdicion(null);
+  if(!prev) preguntarPedidosLote(lote);
   renderProduccionList();
 }
 window.guardarProduccion = guardarProduccion;
@@ -5141,11 +5129,46 @@ function renderProduccionList(){
         <span><button class="tbl-btn" onclick="editarLoteProduccion('${l.id}')" title="Editar lote" style="font-size:11px;padding:2px 6px">✏️</button> <button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:11px;padding:2px 6px">🗑️</button></span>
       </div>
       <div style="color:var(--t2);margin-top:3px">${[l.marca, l.formato, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+l.caducidad:'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':''].filter(Boolean).join(' · ')}</div>
+      ${(l.pedidosRef||[]).length?`<div style="margin-top:3px;color:var(--t2)">📋 Para: <b>${l.pedidosRef.map(r=>r.txt).join(', ')}</b></div>`:''}
       <div style="margin-top:3px">Restante: <b>${restPal} pal.</b> · <b>${restCaj} cajas</b>${agotado?' · <span style="color:var(--status-load)">agotado</span>':''}</div>
     </div>`;
   }).join('');
 }
 window.renderProduccionList = renderProduccionList;
+
+// ── Al fabricar: preguntar si hay pedidos pendientes de ese artículo/formato ──
+let _asigLote = null, _asigMatch = [];
+function pedidosPendientesPara(lote) {
+  const key = (lote.articulo||'').trim().toUpperCase();
+  return pedidos.filter(p => p.status !== 'cargado').map(p => {
+    const lin = [{producto:p.producto, formato:p.formato, uds:p.uds, cajas:p.cajas}, ...(p.productosExtra||[])]
+      .filter(x => (x.producto||'').trim().toUpperCase()===key && _fmtOk(lote, x.formato));
+    return lin.length ? { p, lin } : null;
+  }).filter(Boolean);
+}
+function preguntarPedidosLote(lote) {
+  _asigMatch = pedidosPendientesPara(lote);
+  if (!_asigMatch.length) return;
+  _asigLote = lote;
+  document.getElementById('asig-sub').textContent = 'Hay pedidos pendientes de ' + lote.articulo + (lote.formato?' · '+lote.formato:'') + '. Marca los que se sirven con esta producción.';
+  document.getElementById('asig-lista').innerHTML = _asigMatch.map(({p,lin},i) =>
+    `<label style="display:flex;gap:10px;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:12.5px;cursor:pointer">
+      <input type="checkbox" class="asig-chk" value="${i}" style="width:18px;height:18px;accent-color:var(--accent)">
+      <span><b>${_esc(p.grupo||'')}</b>${p.num?' #'+_esc(p.num):''} · ${lin.map(x=>[x.uds?x.uds+' pal.':'',x.cajas?x.cajas+' cajas':''].filter(Boolean).join(' ')).join(' + ')}</span>
+    </label>`).join('');
+  document.getElementById('mAsigPed').classList.add('open');
+}
+function cerrarAsigPedidos(){ document.getElementById('mAsigPed').classList.remove('open'); _asigLote=null; }
+async function confirmarAsigPedidos() {
+  const sel = [...document.querySelectorAll('#asig-lista .asig-chk:checked')].map(c => _asigMatch[parseInt(c.value)].p);
+  if (_asigLote && sel.length) {
+    await fbSaveProduccion({ ..._asigLote, pedidosRef: sel.map(p => ({ id:p.id, txt:(p.grupo||'')+(p.num?' #'+p.num:'') })) });
+    toast('📋 Producción asignada a ' + sel.length + ' pedido' + (sel.length>1?'s':''));
+  }
+  cerrarAsigPedidos();
+}
+window.cerrarAsigPedidos = cerrarAsigPedidos;
+window.confirmarAsigPedidos = confirmarAsigPedidos;
 
 let editLoteId = null;
 function _setModoEdicion(id){

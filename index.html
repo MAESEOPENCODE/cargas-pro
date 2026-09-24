@@ -125,7 +125,9 @@ header::after{
 .logo-text{font-family:var(--font-display);font-size:18px;font-weight:800;letter-spacing:-.3px;color:#FFFFFF}
 .logo-text span{color:#F5A623}
 .logo-sub{font-family:var(--font-mono);font-size:8px;color:rgba(255,255,255,0.45);letter-spacing:2px;margin-top:-2px;text-transform:uppercase}
-.header-right{display:flex;align-items:center;gap:10px}
+.header-right{display:flex;align-items:center;gap:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;max-width:70vw}
+.header-right::-webkit-scrollbar{display:none}
+.header-right>*{flex-shrink:0}
 .today-badge{
   font-family:var(--font-mono);font-size:11px;font-weight:700;
   color:#fff;
@@ -2219,6 +2221,7 @@ tr:hover td {
     <button class="export-btn" onclick="document.getElementById('importJsonInput').click()" title="Importar JSON" style="width:auto;padding:5px 10px;font-size:11px;font-weight:700;">📥 Importar datos</button>
     <input type="file" id="importJsonInput" accept=".json" style="display:none" onchange="importarJSON(event)">
     <button class="export-btn" onclick="exportarCSV()" title="Exportar CSV">📤</button>
+    <button class="export-btn" onclick="openProduccionModal()" title="Producción / Stock">🏭</button>
   </div>
 </header>
 
@@ -2411,9 +2414,13 @@ tr:hover td {
       <div id="productos-container">
         <div class="producto-fila" data-idx="0">
           <div class="fgrid">
-            <div class="fg"><label>📦 Producto</label><input id="f-producto" placeholder="Naranja, Espárrago..." list="dl-productos" autocomplete="off"><datalist id="dl-productos"></datalist></div>
-            <div class="fg"><label>Palets</label><input id="f-uds" placeholder="10" inputmode="numeric"></div>
+            <div class="fg"><label>📦 Producto</label><input id="f-producto" placeholder="Naranja, Espárrago..." list="dl-productos" autocomplete="off" oninput="actualizarAvisoStock()"><datalist id="dl-productos"></datalist></div>
+            <div class="fg"><label>Palets</label><input id="f-uds" placeholder="10" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
           </div>
+          <div class="fgrid" style="margin-top:8px">
+            <div class="fg"><label>📦 Cajas</label><input id="f-cajas" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
+          </div>
+          <div id="aviso-stock" style="display:none;margin-top:6px;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:600"></div>
           <div class="fgrid" style="margin-top:8px">
             <div class="fg"><label>🟫 Euros</label><input id="f-europalets" placeholder="0" type="number" min="0" max="999" maxlength="3" inputmode="numeric" oninput="syncEuropaletsToEC()"></div>
             <div class="fg"><label>País</label><input id="f-pais" placeholder="España, Francia..." list="dl-paises" autocomplete="off">
@@ -2528,13 +2535,7 @@ tr:hover td {
     </div>
     <div class="modal-scroll">
       <div class="fsec">Datos de la carga</div>
-      <div class="fgrid full">
-        <div class="fg">
-          <label>📦 Palets en esta carga</label>
-          <input id="c-palets" type="number" min="0" inputmode="numeric" placeholder="0" oninput="actualizarRestanteCarga()">
-          <div id="c-palets-info" style="font-size:11px;color:var(--t3);margin-top:5px;line-height:1.4"></div>
-        </div>
-      </div>
+      <div id="c-productos-lista"></div>
       <div class="fgrid" style="margin-top:10px">
         <div class="fg"><label>⏰ Hora de carga</label><input type="time" id="c-hora"></div>
         <div class="fg"><label>🚪 Muelle</label><input id="c-muelle" placeholder="Muelle 1" list="dl-muelles2" autocomplete="off"><datalist id="dl-muelles2"></datalist></div>
@@ -2724,6 +2725,49 @@ tr:hover td {
   </div>
 </div>
 
+<!-- MODAL PRODUCCIÓN / STOCK -->
+<div class="modal-bg" id="mProduccion" onclick="if(event.target===this)closeProduccionModal()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <div class="modal-title">🏭 Producción / Stock</div>
+      <div class="modal-subtitle">Registra cada lote fabricado. El stock se descuenta solo al cargar pedidos.</div>
+    </div>
+    <div class="modal-scroll">
+      <div class="fsec">Nuevo lote</div>
+      <div class="fgrid">
+        <div class="fg"><label>📦 Artículo</label><input id="pr-articulo" placeholder="Gazpacho, Salsa brava..." list="dl-productos" autocomplete="off"></div>
+        <div class="fg"><label>🏷️ Marca</label><input id="pr-marca" placeholder="Marca" autocomplete="off"></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label>🟧 Palets</label><input id="pr-palets" type="number" min="0" inputmode="numeric" placeholder="0"></div>
+        <div class="fg"><label>📦 Cajas</label><input id="pr-cajas" type="number" min="0" inputmode="numeric" placeholder="0"></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label>🔖 Lote</label><input id="pr-lote" placeholder="L-2026-001" autocomplete="off"></div>
+        <div class="fg"><label>📅 Caducidad</label><input id="pr-caducidad" type="date"></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label>⚖️ Peso producto (kg/ud)</label><input id="pr-peso" type="number" step="0.01" min="0" placeholder="0.00" inputmode="decimal"></div>
+        <div class="fg"><label>📅 Fecha producción</label><input id="pr-fecha" type="date"></div>
+      </div>
+      <div class="fgrid full" style="margin-top:10px">
+        <div class="fg"><label>Notas</label><textarea id="pr-notas" placeholder="Observaciones..."></textarea></div>
+      </div>
+      <button type="button" onclick="guardarProduccion()" style="margin-top:6px;width:100%;padding:12px;border:none;border-radius:var(--r-sm);background:var(--dhl-yellow);color:var(--dhl-dark);font-family:var(--font-body);font-size:13px;font-weight:800;cursor:pointer;letter-spacing:.4px;text-transform:uppercase">＋ Registrar lote</button>
+
+      <div class="fsec" style="margin-top:18px">Stock actual por artículo</div>
+      <div id="pr-resumen-stock" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+
+      <div class="fsec">Lotes registrados</div>
+      <div id="pr-lista-lotes" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="mbtn mbtn-cancel" onclick="closeProduccionModal()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script>
@@ -2739,6 +2783,7 @@ firebase.initializeApp({
 const db  = firebase.firestore();
 const col = db.collection('pedidos');
 const colMov = db.collection('movimientos_palets');
+const colProd = db.collection('produccion');
 
 // ══ LOGIN ══
 (function(){
@@ -2763,6 +2808,79 @@ const colMov = db.collection('movimientos_palets');
 })();
 
 let pedidos = [];
+let producciones = [];
+colProd.onSnapshot((snap) => {
+  producciones = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
+  if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
+  render(); // por si hay avisos de stock visibles en el formulario abierto
+}, (err) => { console.error('Firestore producción:', err); });
+
+// Stock disponible de un artículo: suma de todos los lotes (palets/cajas) menos lo ya consumido
+function stockDisponible(articulo) {
+  const key = (articulo||'').trim().toUpperCase();
+  if (!key) return { palets: 0, cajas: 0 };
+  let palets = 0, cajas = 0;
+  producciones.forEach(l => {
+    if ((l.articulo||'').trim().toUpperCase() !== key) return;
+    palets += Math.max((parseFloat(l.palets)||0) - (parseFloat(l.paletsConsumidos)||0), 0);
+    cajas  += Math.max((parseFloat(l.cajas)||0) - (parseFloat(l.cajasConsumidos)||0), 0);
+  });
+  return { palets, cajas };
+}
+
+async function fbSaveProduccion(l) {
+  setSyncStatus('saving');
+  try { await colProd.doc(String(l.id)).set(l); setSyncStatus('ok'); }
+  catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar producción'); }
+}
+// Revierte el consumo de stock de un historial de cargas (usado al reabrir un pedido)
+async function revertirConsumoStock(cargasHistorial) {
+  for (const carga of (cargasHistorial||[])) {
+    for (const uso of (carga.lotesConsumidos||[])) {
+      const lote = producciones.find(l => String(l.id) === String(uso.id));
+      if (!lote) continue; // el lote pudo ser eliminado manualmente entre tanto
+      await fbSaveProduccion({ ...lote,
+        paletsConsumidos: Math.max((parseFloat(lote.paletsConsumidos)||0) - (parseFloat(uso.palets)||0), 0),
+        cajasConsumidos: Math.max((parseFloat(lote.cajasConsumidos)||0) - (parseFloat(uso.cajas)||0), 0)
+      });
+    }
+  }
+}
+
+async function fbDeleteProduccion(id) {
+  setSyncStatus('saving');
+  try { await colProd.doc(String(id)).delete(); setSyncStatus('ok'); }
+  catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al eliminar'); }
+}
+
+// Consume stock FIFO (lote con caducidad más próxima primero) para un artículo.
+// Devuelve el detalle de lotes usados: [{lote, palets, cajas, caducidad}]
+async function consumirStock(articulo, palets, cajas) {
+  const key = (articulo||'').trim().toUpperCase();
+  let restPal = parseFloat(palets)||0, restCaj = parseFloat(cajas)||0;
+  const usados = [];
+  const lotes = producciones
+    .filter(l => (l.articulo||'').trim().toUpperCase() === key)
+    .filter(l => (parseFloat(l.palets)||0)-(parseFloat(l.paletsConsumidos)||0) > 0 || (parseFloat(l.cajas)||0)-(parseFloat(l.cajasConsumidos)||0) > 0)
+    .sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
+  for (const l of lotes) {
+    if (restPal<=0 && restCaj<=0) break;
+    const dispPal = Math.max((parseFloat(l.palets)||0)-(parseFloat(l.paletsConsumidos)||0), 0);
+    const dispCaj = Math.max((parseFloat(l.cajas)||0)-(parseFloat(l.cajasConsumidos)||0), 0);
+    const usaPal = Math.min(dispPal, restPal);
+    const usaCaj = Math.min(dispCaj, restCaj);
+    if (usaPal<=0 && usaCaj<=0) continue;
+    const actualizado = { ...l,
+      paletsConsumidos: (parseFloat(l.paletsConsumidos)||0) + usaPal,
+      cajasConsumidos: (parseFloat(l.cajasConsumidos)||0) + usaCaj
+    };
+    await fbSaveProduccion(actualizado);
+    usados.push({ id:l.id, lote:l.lote||'', palets:usaPal, cajas:usaCaj, caducidad:l.caducidad||'' });
+    restPal -= usaPal; restCaj -= usaCaj;
+  }
+  return usados;
+}
 // ════ FIX BUG: día de carga real (no fecha planificada del pedido) ════
 // Si un pedido tiene cargadoAt (fecha real en que se pulsó "Cargado") usar esa,
 // si no, usar p.fecha por compatibilidad con pedidos antiguos (migración suave).
@@ -3127,11 +3245,12 @@ function cardHtmlHistorico(p) {
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
       ${productosExtraHtml(p)}
+      ${lineasPedidoHtml(p)}
       <div class="info-row">
         ${p.mat1?`<div class="info-block md"><div class="info-label">🚛 Tractora</div><span class="tag tag-mat1">${p.mat1}</span></div>`:''}
         ${p.mat2?`<div class="info-block md"><div class="info-label">🔗 Remolque</div><span class="tag tag-mat2">${p.mat2}</span></div>`:''}
@@ -3188,13 +3307,57 @@ function paletsInfoHtml(p) {
   return html;
 }
 
+// Progreso de cajas cargadas vs. total del pedido (análogo a paletsInfoHtml)
+function cajasInfoHtml(p) {
+  const total = parseInt(p.cajas)||0;
+  if (!total) return '';
+  const cargadas = parseInt(p.cajasCargadas)||0;
+  if (cargadas<=0) return `<div class="info-block sm"><div class="info-label">Cajas</div><span class="tag tag-palets">${total}</span></div>`;
+  const restante = Math.max(total-cargadas,0);
+  let html = `<div class="info-block sm"><div class="info-label">Cajas</div><span class="tag tag-palets">${cargadas}/${total}</span></div>`;
+  if (restante>0) html += `<div class="info-block sm"><div class="info-label">📦 Restante</div><span class="tag" style="background:#FFE0B2;color:#8A4B00;border-color:#FFCC80">${restante} caj.</span></div>`;
+  return html;
+}
+
 // Renderiza filas adicionales de info-row para los productos extra de un pedido (multi-producto)
+// Renderiza las líneas de pedido (aduana/exportación) dentro de la tarjeta, si el pedido las tiene
+function lineasPedidoHtml(p) {
+  const lineas = p.lineas||[];
+  if (!lineas.length) return '';
+  const filas = lineas.map((l,i) => {
+    const partes = [
+      l.marcas?`Marcas: ${l.marcas}`:'',
+      l.bultos?`Bultos: ${l.bultos}`:'',
+      l.embalaje?`Embalaje: ${l.embalaje}`:'',
+      l.naturaleza?`Naturaleza: ${l.naturaleza}`:'',
+      l.nestadistico?`N.Est: ${l.nestadistico}`:''
+    ].filter(Boolean).join(' · ');
+    if (!partes) return '';
+    return `<div style="font-size:11.5px;color:var(--t2);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;margin-top:4px"><b style="color:var(--t3)">L${i+1}</b> · ${partes}</div>`;
+  }).join('');
+  if (!filas) return '';
+  return `<div style="margin-top:6px"><div class="info-label">📑 Líneas de pedido</div>${filas}</div>`;
+}
+
+// Progreso de palets/cajas cargados de un producto extra (mismo criterio que paletsInfoHtml/cajasInfoHtml)
+function _progresoExtraHtml(total, cargado, unidad) {
+  const t = parseInt(total)||0;
+  if (!t) return '';
+  const c = parseInt(cargado)||0;
+  if (c<=0) return `<div class="info-block sm"><div class="info-label">${unidad}</div><span class="tag tag-palets">${t}</span></div>`;
+  const restante = Math.max(t-c,0);
+  let html = `<div class="info-block sm"><div class="info-label">${unidad}</div><span class="tag tag-palets">${c}/${t}</span></div>`;
+  if (restante>0) html += `<div class="info-block sm"><div class="info-label">📦 Restante</div><span class="tag" style="background:#FFE0B2;color:#8A4B00;border-color:#FFCC80">${restante}</span></div>`;
+  return html;
+}
+
 function productosExtraHtml(p) {
   const extra = p.productosExtra||[];
   if(!extra.length) return '';
   return extra.map(pe => `<div class="info-row">
         ${pe.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${pe.producto}</span></div>`:''}
-        ${pe.uds?`<div class="info-block sm"><div class="info-label">Palets</div><span class="tag tag-palets">${pe.uds}</span></div>`:''}
+        ${_progresoExtraHtml(pe.uds, pe.udsCargados, 'Palets')}
+        ${_progresoExtraHtml(pe.cajas, pe.cajasCargados, 'Cajas')}
         ${pe.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${pe.europalets}</span></div>`:''}
         ${pe.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${pe.pais}</span></div>`:''}
       </div>`).join('');
@@ -3227,11 +3390,12 @@ function cardHtml(p, esCamionCompartido=false) {
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
       ${productosExtraHtml(p)}
+      ${lineasPedidoHtml(p)}
       <div class="info-row">
         ${p.mat1?`<div class="info-block md"><div class="info-label">🚛 Tractora</div><span class="tag tag-mat1">${p.mat1}</span></div>`:''}
         ${p.mat2?`<div class="info-block md"><div class="info-label">🔗 Remolque</div><span class="tag tag-mat2">${p.mat2}</span></div>`:''}
@@ -3341,10 +3505,11 @@ function openPedidoModal(idOrNull) {
   // Mostrar botón Copiar solo cuando se edita un pedido existente
   const btnCopiar = document.getElementById('btnCopiarPedido');
   if (btnCopiar) btnCopiar.style.display = p ? '' : 'none';
-  ['num','grupo','producto','ref','uds','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'].forEach(k => {
+  ['num','grupo','producto','ref','uds','cajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'].forEach(k => {
     const fid = k==='hora_salida'?'f-hora-salida':'f-'+k;
     const el = document.getElementById(fid); if(el) el.value = p?.[k]||'';
   });
+  actualizarAvisoStock();
   // Cargar productos extra (multi-producto)
   cargarProductosExtra(p?.productosExtra||[]);
   // Cargar líneas de pedido
@@ -3405,14 +3570,16 @@ function duplicarPedido() {
       copia.ec      = 0;
       copia.ed      = 0;
       copia.udsCargados = 0;
+      copia.cajasCargadas = 0;
       copia.cargasHistorial = [];
+      copia.productosExtra = (copia.productosExtra||[]).map(pe => ({...pe, udsCargados:0, cajasCargados:0}));
       // Abrir modal como nuevo pedido con los datos de la copia
       editId = null;
       document.getElementById('mPedidoTitle').textContent = '📦 Nuevo pedido (copia)';
       const btnCopiar = document.getElementById('btnCopiarPedido');
       if (btnCopiar) btnCopiar.style.display = 'none';
       // Rellenar campos
-      const campos = ['num','grupo','producto','ref','uds','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'];
+      const campos = ['num','grupo','producto','ref','uds','cajas','pais','mat1','mat2','hora','hora_salida','muelle','transportista','notas','ec','ed','europalets'];
       campos.forEach(k => {
         const fid = k==='hora_salida' ? 'f-hora-salida' : 'f-'+k;
         const el = document.getElementById(fid);
@@ -3423,6 +3590,7 @@ function duplicarPedido() {
       document.getElementById('f-tipolinea').value = copia.tipoLinea||'botella';
       document.getElementById('f-fase').value = copia.faseBrik||'llenado';
       toggleFaseBrik();
+      actualizarAvisoStock();
       const sinIntEl = document.getElementById('f-sin-intercambio');
       if (sinIntEl) sinIntEl.checked = false;
       const albaranEl = document.getElementById('f-albaran-pedido');
@@ -3575,6 +3743,9 @@ function addProductoExtra(datos) {
   const div = document.createElement('div');
   div.className = 'producto-fila producto-extra';
   div.dataset.idx = idx;
+  // Contadores de lo ya cargado de este producto extra (se conservan aunque se reedite/guarde el formulario)
+  div.dataset.udscargados = v.udsCargados || 0;
+  div.dataset.cajascargados = v.cajasCargados || 0;
   div.style.marginTop = '12px';
   div.style.paddingTop = '12px';
   div.style.borderTop = '1px dashed var(--border2)';
@@ -3583,11 +3754,14 @@ function addProductoExtra(datos) {
       <button type="button" class="linea-del" onclick="removeProductoExtra(this)" title="Eliminar producto">✕</button>
     </div>
     <div class="fgrid">
-      <div class="fg"><label>📦 Producto</label><input class="pe-producto" placeholder="Naranja, Espárrago..." list="dl-productos" autocomplete="off" value="${_esc(v.producto)}"></div>
-      <div class="fg"><label>Palets</label><input class="pe-uds" placeholder="10" inputmode="numeric" value="${_esc(v.uds)}"></div>
+      <div class="fg"><label>📦 Producto</label><input class="pe-producto" placeholder="Naranja, Espárrago..." list="dl-productos" autocomplete="off" value="${_esc(v.producto)}" oninput="actualizarAvisoStock()"></div>
+      <div class="fg"><label>Palets</label><input class="pe-uds" placeholder="10" inputmode="numeric" value="${_esc(v.uds)}" oninput="actualizarAvisoStock()"></div>
     </div>
     <div class="fgrid" style="margin-top:8px">
+      <div class="fg"><label>📦 Cajas</label><input class="pe-cajas" placeholder="0" inputmode="numeric" value="${_esc(v.cajas)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>🟫 Euros</label><input class="pe-europalets" placeholder="0" type="number" min="0" max="999" maxlength="3" inputmode="numeric" value="${_esc(v.europalets)}"></div>
+    </div>
+    <div class="fgrid" style="margin-top:8px">
       <div class="fg"><label>País</label><input class="pe-pais" placeholder="España, Francia..." list="dl-paises" autocomplete="off" value="${_esc(v.pais)}"></div>
     </div>`;
   container.appendChild(div);
@@ -3601,9 +3775,12 @@ function getProductosExtra() {
   return [...document.querySelectorAll('#productos-extra-container .producto-extra')].map(el => ({
     producto:    el.querySelector('.pe-producto')?.value.trim()||'',
     uds:         el.querySelector('.pe-uds')?.value.trim()||'',
+    cajas:       el.querySelector('.pe-cajas')?.value.trim()||'',
     europalets:  parseInt(el.querySelector('.pe-europalets')?.value)||0,
     pais:        el.querySelector('.pe-pais')?.value.trim()||'',
-  })).filter(p => p.producto||p.uds||p.europalets||p.pais);
+    udsCargados: parseFloat(el.dataset.udscargados)||0,
+    cajasCargados: parseFloat(el.dataset.cajascargados)||0,
+  })).filter(p => p.producto||p.uds||p.cajas||p.europalets||p.pais);
 }
 
 function cargarProductosExtra(productosExtra) {
@@ -3615,6 +3792,36 @@ function cargarProductosExtra(productosExtra) {
 
 window.addProductoExtra = addProductoExtra;
 window.removeProductoExtra = removeProductoExtra;
+
+// Compara palets/cajas solicitados en el pedido (producto principal + productos extra) contra el stock disponible
+function actualizarAvisoStock() {
+  const aviso = document.getElementById('aviso-stock');
+  if (!aviso) return;
+  const lineas = [
+    { articulo: document.getElementById('f-producto')?.value.trim(), pal: parseFloat(document.getElementById('f-uds')?.value)||0, caj: parseFloat(document.getElementById('f-cajas')?.value)||0 },
+    ...[...document.querySelectorAll('#productos-extra-container .producto-extra')].map(el => ({
+      articulo: el.querySelector('.pe-producto')?.value.trim()||'',
+      pal: parseFloat(el.querySelector('.pe-uds')?.value)||0,
+      caj: parseFloat(el.querySelector('.pe-cajas')?.value)||0
+    }))
+  ];
+  const filas = lineas
+    .filter(l => l.articulo && producciones.some(p => (p.articulo||'').trim().toUpperCase() === l.articulo.toUpperCase()))
+    .map(l => {
+      const s = stockDisponible(l.articulo);
+      const falta = l.pal > s.palets || l.caj > s.cajas;
+      return { ...l, s, falta };
+    });
+  if (!filas.length) { aviso.style.display = 'none'; return; }
+  const hayFalta = filas.some(f => f.falta);
+  aviso.style.display = '';
+  aviso.style.background = hayFalta ? 'rgba(220,53,69,0.12)' : 'rgba(40,167,69,0.12)';
+  aviso.style.color = hayFalta ? '#B02A37' : '#1E7E34';
+  aviso.innerHTML = filas.map(f =>
+    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}": ${f.s.palets} pal. / ${f.s.cajas} cajas`
+  ).join('<br>');
+}
+window.actualizarAvisoStock = actualizarAvisoStock;
 
 // ══ TIPO DE LÍNEA (Brik multi-fase vs Botella línea continua) ══
 function toggleFaseBrik() {
@@ -3661,7 +3868,7 @@ async function savePedido() {
   const p = {
     id, createdAt: editId ? (pedidos.find(x=>x.id===editId)?.createdAt || Date.now()) : Date.now(),
     num:get('f-num'), grupo:get('f-grupo'), producto:get('f-producto'), ref:get('f-ref'),
-    uds:get('f-uds'), pais:get('f-pais'),
+    uds:get('f-uds'), cajas:get('f-cajas'), pais:get('f-pais'),
     europalets: parseInt(get('f-europalets'))||0,
     mat1:get('f-mat1').toUpperCase(), mat2:get('f-mat2').toUpperCase(),
     hora:document.getElementById('f-hora').value,
@@ -3713,7 +3920,8 @@ async function _doSavePedido(p) {
 
 function limpiarPedidoModal() {
   confirm2('🗑','¿Limpiar formulario?','Se borrarán todos los campos','Limpiar','',()=>{
-    ['num','grupo','producto','ref','uds','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
+    ['num','grupo','producto','ref','uds','cajas','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
+    const avisoStockEl = document.getElementById('aviso-stock'); if(avisoStockEl) avisoStockEl.style.display='none';
     cargarLineasPedido([]);
     const usaLineasChk = document.getElementById('f-usa-lineas'); if(usaLineasChk) usaLineasChk.checked=false;
     toggleUsaLineas();
@@ -3742,12 +3950,7 @@ function openCargarModal(id) {
   document.getElementById('c-mat2').value=p.mat2||'';
   document.getElementById('c-notas').value='';
   document.getElementById('c-hora-salida').value=new Date().toTimeString().slice(0,5);
-  // Palets: por defecto se propone el restante pendiente de cargar
-  const totalPed = parseInt(p.uds)||0;
-  const yaCargados = parseInt(p.udsCargados)||0;
-  const restantePed = totalPed>0 ? Math.max(totalPed-yaCargados,0) : 0;
-  document.getElementById('c-palets').value = totalPed>0 ? restantePed : (p.uds||'');
-  actualizarRestanteCarga();
+  renderCargaProductosLista(p);
   // EC se autorrellena con EUROPALETS del pedido si no tiene EC propio
   document.getElementById('c-ec').value = p.ec || p.europalets || '';
   document.getElementById('c-ed').value = p.ed||'';
@@ -3756,16 +3959,58 @@ function openCargarModal(id) {
 }
 function closeCargarModal() { document.getElementById('mCargar').classList.remove('open'); cargarId=null; }
 
+// Construye la lista de líneas a cargar: el producto principal ('main') + cada producto extra (0,1,2...)
+function _cargaLineasDe(p) {
+  const lineas = [{ idx:'main', producto:p.producto||'', total:parseInt(p.uds)||0, totalCaj:parseInt(p.cajas)||0, cargado:parseInt(p.udsCargados)||0, cargadoCaj:parseInt(p.cajasCargadas)||0 }];
+  (p.productosExtra||[]).forEach((pe,i) => {
+    lineas.push({ idx:String(i), producto:pe.producto||'', total:parseInt(pe.uds)||0, totalCaj:parseInt(pe.cajas)||0, cargado:parseInt(pe.udsCargados)||0, cargadoCaj:parseInt(pe.cajasCargados)||0 });
+  });
+  return lineas.filter(l => l.producto || l.total || l.totalCaj);
+}
+
+// Pinta un bloque de palets/cajas por cada línea de producto del pedido (multi-producto)
+function renderCargaProductosLista(p) {
+  const cont = document.getElementById('c-productos-lista');
+  const lineas = _cargaLineasDe(p);
+  cont.innerHTML = lineas.map(l => {
+    const restantePal = l.total>0 ? Math.max(l.total-l.cargado,0) : 0;
+    const restanteCaj = l.totalCaj>0 ? Math.max(l.totalCaj-l.cargadoCaj,0) : 0;
+    const valPal = l.total>0 ? restantePal : '';
+    const valCaj = l.totalCaj>0 ? restanteCaj : '';
+    return `<div class="c-linea-carga" data-lineidx="${l.idx}" data-producto="${_esc(l.producto)}" data-total="${l.total}" data-totalcaj="${l.totalCaj}" data-cargado="${l.cargado}" data-cargadocaj="${l.cargadoCaj}" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--border2)">
+      <div style="font-weight:700;font-size:12.5px;margin-bottom:4px">📦 ${l.producto||'(sin producto)'}</div>
+      <div class="fgrid">
+        <div class="fg"><label>🟧 Palets en esta carga</label><input class="c-linea-pal" type="number" min="0" inputmode="numeric" placeholder="0" value="${valPal}" oninput="actualizarRestanteCarga()"></div>
+        <div class="fg"><label>📦 Cajas en esta carga</label><input class="c-linea-caj" type="number" min="0" inputmode="numeric" placeholder="0" value="${valCaj}" oninput="actualizarRestanteCarga()"></div>
+      </div>
+      <div class="c-linea-info" style="font-size:11px;color:var(--t3);margin-top:4px"></div>
+    </div>`;
+  }).join('');
+  actualizarRestanteCarga();
+}
+
 function actualizarRestanteCarga() {
-  const info = document.getElementById('c-palets-info');
-  if (!info) return;
-  const p = pedidos.find(x=>String(x.id)===String(cargarId));
-  const totalPed = p ? (parseInt(p.uds)||0) : 0;
-  if (!totalPed) { info.textContent = ''; return; }
-  const yaCargados = p ? (parseInt(p.udsCargados)||0) : 0;
-  const estaCarga = parseInt(document.getElementById('c-palets').value)||0;
-  const restanteTrasEsta = Math.max(totalPed - yaCargados - estaCarga, 0);
-  info.innerHTML = `Pedido: <b>${totalPed}</b> palets · Ya cargados: <b>${yaCargados}</b> · Tras esta carga quedarán: <b style="color:${restanteTrasEsta>0?'var(--status-rev)':'var(--status-load)'}">${restanteTrasEsta}</b>`;
+  document.querySelectorAll('#c-productos-lista .c-linea-carga').forEach(el => {
+    const total = parseInt(el.dataset.total)||0;
+    const totalCaj = parseInt(el.dataset.totalcaj)||0;
+    const cargado = parseInt(el.dataset.cargado)||0;
+    const cargadoCaj = parseInt(el.dataset.cargadocaj)||0;
+    const info = el.querySelector('.c-linea-info');
+    if (!info) return;
+    if (!total && !totalCaj) { info.textContent = ''; return; }
+    const estaPal = parseInt(el.querySelector('.c-linea-pal').value)||0;
+    const estaCaj = parseInt(el.querySelector('.c-linea-caj').value)||0;
+    const partes = [];
+    if (total) {
+      const restante = Math.max(total-cargado-estaPal, 0);
+      partes.push(`Palets: <b>${total}</b> pedido · ${cargado} cargados · quedarán <b style="color:${restante>0?'var(--status-rev)':'var(--status-load)'}">${restante}</b>`);
+    }
+    if (totalCaj) {
+      const restanteCaj = Math.max(totalCaj-cargadoCaj-estaCaj, 0);
+      partes.push(`Cajas: <b>${totalCaj}</b> pedido · ${cargadoCaj} cargadas · quedarán <b style="color:${restanteCaj>0?'var(--status-rev)':'var(--status-load)'}">${restanteCaj}</b>`);
+    }
+    info.innerHTML = partes.join('<br>');
+  });
 }
 window.actualizarRestanteCarga = actualizarRestanteCarga;
 
@@ -3787,33 +4032,80 @@ async function confirmarCarga() {
     if(!cont){ window._tmpCancelCarga=null; return; }
     window._tmpCancelCarga=null;
   }
-  // Palets: si el pedido tiene un total (uds) se controla el stock restante;
-  // si no tiene uds definido, se conserva el comportamiento anterior (carga completa)
-  const totalPed = parseInt(p.uds)||0;
-  const yaCargados = parseInt(p.udsCargados)||0;
-  const estaCarga = parseInt(document.getElementById('c-palets').value)||0;
-  const nuevoTotalCargado = totalPed>0 ? Math.min(yaCargados+estaCarga, totalPed) : (yaCargados+estaCarga);
-  const completo = totalPed>0 ? nuevoTotalCargado >= totalPed : true;
-  const restante = totalPed>0 ? Math.max(totalPed-nuevoTotalCargado, 0) : 0;
+
+  // Recorremos cada línea de producto del pedido (principal + extra), controlando su propio
+  // restante y descontando su propio stock. El pedido se da por "completo" solo cuando TODAS
+  // las líneas han llegado a su total.
+  const bloques = [...document.querySelectorAll('#c-productos-lista .c-linea-carga')];
+  let completoGlobal = true;
+  let lotesConsumidosTotal = [];
+  const resumenPartes = [];
+  const productosExtraActualizados = (p.productosExtra||[]).map(pe=>({...pe}));
+  let mainUpdate = {};
+
+  for (const el of bloques) {
+    const idx = el.dataset.lineidx;
+    const producto = el.dataset.producto;
+    const total = parseInt(el.dataset.total)||0;
+    const totalCaj = parseInt(el.dataset.totalcaj)||0;
+    const cargado = parseInt(el.dataset.cargado)||0;
+    const cargadoCaj = parseInt(el.dataset.cargadocaj)||0;
+    const estaPal = parseInt(el.querySelector('.c-linea-pal').value)||0;
+    const estaCaj = parseInt(el.querySelector('.c-linea-caj').value)||0;
+
+    const nuevoTotal = total>0 ? Math.min(cargado+estaPal, total) : (cargado+estaPal);
+    const nuevoTotalCaj = totalCaj>0 ? Math.min(cargadoCaj+estaCaj, totalCaj) : (cargadoCaj+estaCaj);
+    const palOk = total>0 ? nuevoTotal >= total : true;
+    const cajOk = totalCaj>0 ? nuevoTotalCaj >= totalCaj : true;
+    if (!(palOk && cajOk)) completoGlobal = false;
+
+    // Descontar stock (FIFO por caducidad) del artículo de esta línea
+    if (producto && (estaPal>0 || estaCaj>0)) {
+      const usados = await consumirStock(producto, estaPal, estaCaj);
+      usados.forEach(u => u.producto = producto);
+      lotesConsumidosTotal = lotesConsumidosTotal.concat(usados);
+    }
+    if (estaPal>0 || estaCaj>0) {
+      const txt = [estaPal?`${estaPal} pal.`:'', estaCaj?`${estaCaj} cajas`:''].filter(Boolean).join(' ');
+      resumenPartes.push(`${producto}: ${txt}`);
+    }
+
+    if (idx === 'main') {
+      mainUpdate = { udsCargados: nuevoTotal, cajasCargadas: nuevoTotalCaj };
+    } else {
+      const i = parseInt(idx);
+      if (productosExtraActualizados[i]) {
+        productosExtraActualizados[i] = { ...productosExtraActualizados[i], udsCargados: nuevoTotal, cajasCargados: nuevoTotalCaj };
+      }
+    }
+  }
 
   const mat1Carga = document.getElementById('c-mat1').value.trim().toUpperCase();
   const mat2Carga = document.getElementById('c-mat2').value.trim().toUpperCase();
 
   const registroCarga = {
     fecha: new Date().toISOString().slice(0,10),
-    palets: estaCarga,
+    detalle: resumenPartes.join(' · '),
     hora: document.getElementById('c-hora').value,
     hora_salida: document.getElementById('c-hora-salida').value,
     muelle: document.getElementById('c-muelle').value.trim(),
     transportista: document.getElementById('c-transportista').value.trim(),
-    mat1: mat1Carga, mat2: mat2Carga
+    mat1: mat1Carga, mat2: mat2Carga,
+    lotesConsumidos: lotesConsumidosTotal
   };
+  // Compatibilidad con el historial anterior (una sola línea): guardamos también palets/cajas de la principal
+  const lineaMain = bloques.find(el=>el.dataset.lineidx==='main');
+  if (lineaMain) {
+    registroCarga.palets = parseInt(lineaMain.querySelector('.c-linea-pal').value)||0;
+    registroCarga.cajas = parseInt(lineaMain.querySelector('.c-linea-caj').value)||0;
+  }
 
   const updated={...p,
-    status: completo ? 'cargado' : p.status,
-    udsCargados: nuevoTotalCargado,
+    status: completoGlobal ? 'cargado' : p.status,
+    ...mainUpdate,
+    productosExtra: productosExtraActualizados,
     cargasHistorial: [...(p.cargasHistorial||[]), registroCarga],
-    ...(completo ? {cargadoAt: new Date().toISOString().slice(0,10)} : {}),
+    ...(completoGlobal ? {cargadoAt: new Date().toISOString().slice(0,10)} : {}),
     hora:document.getElementById('c-hora').value,
     hora_salida:document.getElementById('c-hora-salida').value,
     muelle:document.getElementById('c-muelle').value.trim(),
@@ -3826,14 +4118,14 @@ async function confirmarCarga() {
   closeCargarModal();
   await fbSave(updated);
   await syncMovimientoDePedido(updated);
-  if (!completo && totalPed>0) {
-    toast(`🟡 Carga parcial registrada (${estaCarga} pal.) · Restante: ${restante} pal.`);
+  if (!completoGlobal) {
+    toast(`🟡 Carga parcial: ${resumenPartes.join(' · ')||'registrada'}`);
   } else {
     toast(`🟢 Carga confirmada${ec||ed?` · EC:${ec} ED:${ed}`:''}`);
   }
 }
 
-function limpiarCargarModal() { ['c-hora','c-hora-salida','c-muelle','c-transportista','c-notas','c-ec','c-ed','c-palets','c-mat1','c-mat2'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';}); const info=document.getElementById('c-palets-info'); if(info) info.textContent=''; }
+function limpiarCargarModal() { ['c-hora','c-hora-salida','c-muelle','c-transportista','c-notas','c-ec','c-ed','c-mat1','c-mat2'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';}); const cont=document.getElementById('c-productos-lista'); if(cont) cont.innerHTML=''; }
 
 function reabrir(id) {
   const p0=pedidos.find(x=>String(x.id)===String(id));
@@ -3843,8 +4135,10 @@ function reabrir(id) {
     : 'Volverá al estado Confección';
   confirm2('↩️','¿Reabrir pedido?',msg,'Reabrir','blue',async()=>{
     const p=pedidos.find(x=>String(x.id)===String(id)); if(!p) return;
-    await fbSave({...p, status:'pendiente', udsCargados:0, cargasHistorial:[]});
-    toast('↩️ Pedido reabierto' + (teniaCargas?' · Cargas reiniciadas':''));
+    if ((p.cargasHistorial||[]).length) await revertirConsumoStock(p.cargasHistorial);
+    const productosExtraReset = (p.productosExtra||[]).map(pe => ({...pe, udsCargados:0, cajasCargados:0}));
+    await fbSave({...p, status:'pendiente', udsCargados:0, cajasCargadas:0, productosExtra:productosExtraReset, cargasHistorial:[]});
+    toast('↩️ Pedido reabierto' + (teniaCargas?' · Cargas y stock reiniciados':''));
   });
 }
 
@@ -3852,6 +4146,14 @@ function terminarPedido(id) {
   const p=pedidos.find(x=>String(x.id)===String(id)); if(!p) return;
   fbSave({...p, status:'terminado'});
   toast('✅ Pedido marcado como Terminado');
+  // Botella = línea continua sin fases intermedias: al terminar es el momento de dar de alta el lote
+  if (p.tipoLinea !== 'brik') {
+    setTimeout(() => {
+      confirm2('🏭','¿Dar de alta este lote en Stock?',
+        `${p.producto||'Producto'} · ${p.uds?p.uds+' pal.':''}${p.uds&&p.cajas?' · ':''}${p.cajas?p.cajas+' cajas':''}`,
+        'Registrar lote','blue', () => abrirProduccionDesdePedido(p));
+    }, 300);
+  }
 }
 
 // Avanza la fase de producción de un pedido tipo Brik (Llenado → Esp. etiquetado → Etiquetado → Encajado)
@@ -3863,16 +4165,39 @@ function avanzarFase(id) {
   const nuevaFase = ORDEN_FASE_BRIK[i+1];
   fbSave({...p, faseBrik: nuevaFase});
   toast('🧃 Fase actualizada: ' + (FASE_BRIK_LABEL[nuevaFase]||nuevaFase));
+  // Al llegar a Encajado/Paletizado, se ofrece dar de alta el lote producido directamente en Stock
+  if (nuevaFase === 'encajado') {
+    setTimeout(() => {
+      confirm2('🏭','¿Dar de alta este lote en Stock?',
+        `${p.producto||'Producto'} · ${p.uds?p.uds+' pal.':''}${p.uds&&p.cajas?' · ':''}${p.cajas?p.cajas+' cajas':''}`,
+        'Registrar lote','blue', () => abrirProduccionDesdePedido(p));
+    }, 300);
+  }
 }
 window.avanzarFase = avanzarFase;
+
+// Abre el modal de Producción precargado con los datos del pedido (artículo, palets, cajas)
+// para dar de alta el lote sin tener que teclearlos de nuevo
+function abrirProduccionDesdePedido(p) {
+  openProduccionModal();
+  document.getElementById('pr-articulo').value = p.producto || '';
+  document.getElementById('pr-palets').value = p.uds || '';
+  document.getElementById('pr-cajas').value = p.cajas || '';
+  const loteEl = document.getElementById('pr-lote');
+  if (loteEl) loteEl.focus();
+}
+window.abrirProduccionDesdePedido = abrirProduccionDesdePedido;
 
 
 function delPedido(id) {
   const p=pedidos.find(x=>String(x.id)===String(id));
-  confirm2('🗑','¿Eliminar pedido?',(p?.grupo||'')+(p?.num?' #'+p.num:''),'Eliminar','',async()=>{
+  const teniaCargas = p && (p.cargasHistorial||[]).length>0;
+  const msg = ((p?.grupo||'')+(p?.num?' #'+p.num:'')) + (teniaCargas?'\n\nSe devolverá al stock lo consumido por sus cargas.':'');
+  confirm2('🗑','¿Eliminar pedido?',msg,'Eliminar','',async()=>{
+    if (teniaCargas) await revertirConsumoStock(p.cargasHistorial);
     await fbDelete(id);
     await deleteMovimientoDePedido(id);
-    toast('🗑 Pedido eliminado');
+    toast('🗑 Pedido eliminado' + (teniaCargas?' · Stock devuelto':''));
   });
 }
 
@@ -4887,6 +5212,91 @@ async function guardarSaldoInicial(){
   }catch(e){ console.error(e); toast('❌ Error'); }
 }
 
+// ══════════ PRODUCCIÓN / STOCK ══════════
+function openProduccionModal(){
+  ['pr-articulo','pr-marca','pr-palets','pr-cajas','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  document.getElementById('pr-fecha').value = new Date().toISOString().slice(0,10);
+  renderProduccionList();
+  document.getElementById('mProduccion').classList.add('open');
+}
+function closeProduccionModal(){
+  document.getElementById('mProduccion').classList.remove('open');
+}
+window.openProduccionModal = openProduccionModal;
+window.closeProduccionModal = closeProduccionModal;
+
+async function guardarProduccion(){
+  const articulo = document.getElementById('pr-articulo').value.trim();
+  if(!articulo){ toast('⚠️ Indica el artículo'); return; }
+  const palets = parseFloat(document.getElementById('pr-palets').value)||0;
+  const cajas  = parseFloat(document.getElementById('pr-cajas').value)||0;
+  if(palets<=0 && cajas<=0){ toast('⚠️ Indica palets o cajas'); return; }
+  const lote = {
+    id: 'lote_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    articulo, marca: document.getElementById('pr-marca').value.trim(),
+    palets, cajas,
+    paletsConsumidos: 0, cajasConsumidos: 0,
+    lote: document.getElementById('pr-lote').value.trim(),
+    caducidad: document.getElementById('pr-caducidad').value,
+    peso: document.getElementById('pr-peso').value.trim(),
+    fecha: document.getElementById('pr-fecha').value || new Date().toISOString().slice(0,10),
+    notas: document.getElementById('pr-notas').value.trim(),
+    createdAt: Date.now()
+  };
+  await fbSaveProduccion(lote);
+  ['pr-marca','pr-palets','pr-cajas','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
+  toast('🏭 Lote registrado');
+  renderProduccionList();
+}
+window.guardarProduccion = guardarProduccion;
+
+function renderProduccionList(){
+  // Resumen de stock agrupado por artículo
+  const arts = [...new Set(producciones.map(l=>(l.articulo||'').trim().toUpperCase()).filter(Boolean))];
+  const resumen = document.getElementById('pr-resumen-stock');
+  if (!arts.length) {
+    resumen.innerHTML = '<div style="font-size:12px;color:var(--t3)">Aún no hay lotes registrados.</div>';
+  } else {
+    resumen.innerHTML = arts.map(a=>{
+      const s = stockDisponible(a);
+      const original = producciones.find(l=>(l.articulo||'').trim().toUpperCase()===a)?.articulo || a;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px">
+        <b>${original}</b>
+        <span>🟧 ${s.palets} pal. &nbsp;·&nbsp; 📦 ${s.cajas} cajas</span>
+      </div>`;
+    }).join('');
+  }
+  // Listado de lotes individuales (FIFO por caducidad)
+  const lista = document.getElementById('pr-lista-lotes');
+  if (!producciones.length) {
+    lista.innerHTML = '<div style="font-size:12px;color:var(--t3)">—</div>';
+    return;
+  }
+  lista.innerHTML = producciones.map(l=>{
+    const restPal = Math.max((parseFloat(l.palets)||0)-(parseFloat(l.paletsConsumidos)||0),0);
+    const restCaj = Math.max((parseFloat(l.cajas)||0)-(parseFloat(l.cajasConsumidos)||0),0);
+    const agotado = restPal<=0 && restCaj<=0;
+    return `<div style="background:${agotado?'var(--surface2)':'var(--surface)'};opacity:${agotado?0.55:1};border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b>${l.articulo||''}</b>
+        <button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:11px;padding:2px 6px">🗑️</button>
+      </div>
+      <div style="color:var(--t2);margin-top:3px">${[l.marca, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+l.caducidad:''].filter(Boolean).join(' · ')}</div>
+      <div style="margin-top:3px">Restante: <b>${restPal} pal.</b> · <b>${restCaj} cajas</b>${agotado?' · <span style="color:var(--status-load)">agotado</span>':''}</div>
+    </div>`;
+  }).join('');
+}
+window.renderProduccionList = renderProduccionList;
+
+function eliminarLoteProduccion(id){
+  confirm2('🗑','¿Eliminar lote?','Esta acción no se puede deshacer','Eliminar','',async()=>{
+    await fbDeleteProduccion(id);
+    renderProduccionList();
+    toast('🗑 Lote eliminado');
+  });
+}
+window.eliminarLoteProduccion = eliminarLoteProduccion;
+
 // ============== EUROPALETS · IMPRIMIR / COMPARTIR ==============
 function _epTabLabel(){
   return {movs:'Movimientos', trans:'Por Transportista', cli:'Por Cliente'}[epActiveTab] || 'Movimientos';
@@ -5294,8 +5704,10 @@ function repararApp() {
       cargasList.innerHTML = historial.map((c, i) => {
         const matTxt = [c.mat1, c.mat2].filter(Boolean).join(' · ');
         const detalle = [c.hora, c.muelle?'Muelle '+c.muelle:'', c.transportista, matTxt].filter(Boolean).join(' · ');
+        const cantTxt = c.detalle || [c.palets?`${c.palets} pal.`:'', c.cajas?`${c.cajas} cajas`:''].filter(Boolean).join(' · ') || '—';
+        const lotesTxt = (c.lotesConsumidos||[]).filter(l=>l.lote).map(l=>l.lote).join(', ');
         return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px">
-          <div><b>${c.palets} pal.</b>${detalle?' · '+detalle:''}</div>
+          <div><b>${cantTxt}</b>${detalle?' · '+detalle:''}${lotesTxt?`<br><span style="color:var(--t3);font-size:10.5px">Lotes: ${lotesTxt}</span>`:''}</div>
           <div style="color:var(--t3);font-family:var(--font-mono);font-size:11px">${c.fecha||''}</div>
         </div>`;
       }).join('');
@@ -5338,6 +5750,45 @@ function repararApp() {
     }
   }, { passive: true });
 
+})();
+
+// ══ Confirmación al salir de la aplicación (botón/gesto atrás) ══
+(function () {
+  // Cierra el modal/panel abierto de mayor prioridad. Devuelve true si cerró algo.
+  function cerrarModalAbierto() {
+    const confirmBg = document.getElementById('confirmBg');
+    if (confirmBg && confirmBg.classList.contains('open')) { closeConfirm(); return true; }
+    const vr = document.getElementById('vr-bg');
+    if (vr && vr.classList.contains('open')) { cerrarVistaRapida(); return true; }
+    const mPedido = document.getElementById('mPedido');
+    if (mPedido && mPedido.classList.contains('open')) { closePedidoModal(); return true; }
+    const mCargar = document.getElementById('mCargar');
+    if (mCargar && mCargar.classList.contains('open')) { closeCargarModal(); return true; }
+    const mAlbaran = document.getElementById('mAlbaran');
+    if (mAlbaran && mAlbaran.classList.contains('open')) { closeMAlbaran(); return true; }
+    const mMov = document.getElementById('mMov');
+    if (mMov && mMov.classList.contains('open')) { closeMovModal(); return true; }
+    const mSaldoIni = document.getElementById('mSaldoIni');
+    if (mSaldoIni && mSaldoIni.classList.contains('open')) { closeSaldoIniModal(); return true; }
+    const filterPanel = document.getElementById('filterPanel');
+    if (filterPanel && filterPanel.classList.contains('open')) { filterPanel.classList.remove('open'); return true; }
+    return false;
+  }
+
+  let saliendo = false;
+  history.pushState({cargasProApp:true}, '', location.href);
+  window.addEventListener('popstate', function () {
+    if (saliendo) return; // ya confirmado: dejar que el sistema cierre la app
+    if (cerrarModalAbierto()) {
+      history.pushState({cargasProApp:true}, '', location.href);
+      return;
+    }
+    history.pushState({cargasProApp:true}, '', location.href);
+    confirm2('🚪', '¿Salir de la aplicación?', 'Se cerrará CargasPro', 'Salir', '', function () {
+      saliendo = true;
+      history.back();
+    });
+  });
 })();
 
 window.repararApp = repararApp;

@@ -2724,9 +2724,12 @@ input[type=password],input[type=email]{text-transform:none}
     <div class="modal-scroll">
       <div id="fb-disp" style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px"></div>
       <div class="fsec">¿Cuántos pasan ahora?</div>
-      <div class="fgrid">
+      <div class="fgrid" id="fb-grp-pal">
         <div class="fg"><label>🟧 Palets de bandejas</label><input id="fb-pal" type="number" min="0" inputmode="numeric" oninput="fbPalChange()" style="font-size:20px;font-weight:800;text-align:center"></div>
         <div class="fg"><label>🧃 Bricks</label><input id="fb-total" type="number" min="1" inputmode="numeric" oninput="fbBricksChange()" style="font-size:20px;font-weight:800;text-align:center"></div>
+      </div>
+      <div class="fgrid full" id="fb-grp-solobricks" style="display:none">
+        <div class="fg"><label>🟧 Palets a encajar</label><input id="fb-palenc" type="number" min="1" inputmode="numeric" oninput="fbCalc()" style="font-size:20px;font-weight:800;text-align:center"></div>
       </div>
       <button type="button" onclick="fbTodo()" style="width:100%;margin:2px 0 8px;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-size:13px;font-weight:700;cursor:pointer">Pasa todo el lote</button>
       <div style="font-size:11.5px;color:var(--t2);margin:0 2px 6px">Lo que no pases se queda donde está.</div>
@@ -5270,6 +5273,9 @@ function avanzarFaseLote(id, dest) {
   document.getElementById('fb-cpp').value = ult ? (ult.cajasPorPalet||'') : '';
   document.getElementById('fb-cajas').value = '';
   document.getElementById('fb-enc').style.display = enc ? '' : 'none';
+  document.getElementById('fb-grp-pal').style.display = enc ? 'none' : '';
+  document.getElementById('fb-grp-solobricks').style.display = enc ? '' : 'none';
+  document.getElementById('fb-palenc').value = '';
   document.getElementById('fb-ok').textContent = enc ? '📦 Encajar' : '🏷️ Etiquetar';
   fbTodo();
   document.getElementById('mFaseBrik').classList.add('open');
@@ -5299,40 +5305,46 @@ function fbCajasEdit() { _fbManual = document.getElementById('fb-cajas').value !
 function fbCalc() {
   const l = _faseLote; if (!l) return;
   const v = id => parseFloat(document.getElementById(id).value)||0;
-  const enc = _faseDest==='encajado', b = v('fb-total'), T = parseFloat(l.totalBricks)||0;
+  const enc = _faseDest==='encajado', T = parseFloat(l.totalBricks)||0;
+  let b = enc ? 0 : v('fb-total');
   let html = '';
   if (enc) {
-    const bpc = v('fb-bpc'), k = v('fb-cpp'), e = _encajar(b, bpc, k);
-    if (!_fbManual) document.getElementById('fb-cajas').value = e ? e.cajasTot : '';
-    const cajasTot = _fbManual ? Math.floor(v('fb-cajas')) : (e ? e.cajasTot : 0);
-    if (k>0 && cajasTot>0) {
-      html += `<div>✅ <b>Pasa a stock:</b> ${_fmtN(cajasTot)} cajas = <b>${Math.floor(cajasTot/k)} palets + ${cajasTot%k} cajas</b></div>`;
-      const dif = b - cajasTot*bpc;
-      if (bpc>0 && dif>0) html += `<div style="color:var(--t2)">Sobran ${_fmtN(dif)} bricks sin encajar</div>`;
-    } else html += '<div style="color:var(--t2)">Rellena bricks por caja y cajas por palet para ver el resultado.</div>';
+    const palEnc = v('fb-palenc'), bpc = v('fb-bpc'), k = v('fb-cpp');
+    const cajasNec = palEnc*k, necesarios = cajasNec*bpc;
+    b = necesarios;
+    document.getElementById('fb-total').value = necesarios || '';
+    if (!(palEnc>0 && bpc>0 && k>0)) {
+      html += '<div style="color:var(--t2)">Indica palets a encajar, bricks por caja y cajas por palet.</div>';
+    } else if (necesarios > T) {
+      html += `<div style="color:#B02A37">⚠️ Faltan <b>${_fmtN(necesarios-T)}</b> bricks para encajar ${palEnc} palets (necesitas ${_fmtN(necesarios)}, hay ${_fmtN(T)})</div>`;
+    } else {
+      html += `<div>✅ <b>Pasa a stock:</b> ${_fmtN(cajasNec)} cajas = <b>${palEnc} palets</b> · usa ${_fmtN(necesarios)} bricks</div>`;
+    }
   } else html += `<div>🏷️ <b>Se etiquetan:</b> ${_fmtN(b)} bricks</div>`;
-  if (b>0 && b<T) html += `<div style="margin-top:4px">🟡 <b>Se quedan en ${_FASE_TXT[l.fase]}:</b> ${_fmtN(T-b)} bricks<div style="color:var(--t2)">${_txtDesg(_desglose(T-b, l))}</div></div>`;
-  if (b>T) html += `<div style="color:#B02A37;margin-top:4px">⚠️ Solo hay ${_fmtN(T)} bricks en este lote</div>`;
+  if (!enc) { if (b>0 && b<T) html += `<div style="margin-top:4px">🟡 <b>Se quedan en ${_FASE_TXT[l.fase]}:</b> ${_fmtN(T-b)} bricks<div style="color:var(--t2)">${_txtDesg(_desglose(T-b, l))}</div></div>`;
+  if (b>T) html += `<div style="color:#B02A37;margin-top:4px">⚠️ Solo hay ${_fmtN(T)} bricks en este lote</div>`; }
+  else if (b>0 && b<T) html += `<div style="margin-top:4px">🟡 <b>Quedan en Etiquetado:</b> ${_fmtN(T-b)} bricks</div>`;
   document.getElementById('fb-prev').innerHTML = html;
 }
 function cerrarFaseBrik() { document.getElementById('mFaseBrik').classList.remove('open'); _faseLote = null; }
 async function confirmarFaseBrik() {
   const l = _faseLote; if (!l) return;
   const v = id => parseFloat(document.getElementById(id).value)||0;
-  const dest = _faseDest, b = v('fb-total'), T = parseFloat(l.totalBricks)||0;
-  if (b<=0) { toast('⚠️ Indica cuántos bricks pasan'); return; }
-  if (b>T) { toast('⚠️ Solo hay '+_fmtN(T)+' bricks'); return; }
-  const parcial = b<T;
-  let adv = { ...l, fase:dest, totalBricks:b };
+  const dest = _faseDest, T = parseFloat(l.totalBricks)||0;
+  let b, adv;
   if (dest==='encajado') {
-    const bpc = v('fb-bpc'), k = v('fb-cpp'), e = _encajar(b, bpc, k);
-    if (!e) { toast('⚠️ Indica bricks por caja y cajas por palet'); return; }
-    const cajasTot = document.getElementById('fb-cajas').value!=='' ? Math.floor(v('fb-cajas')) : e.cajasTot;
-    if (cajasTot<=0) { toast('⚠️ Indica las cajas obtenidas'); return; }
-    const usados = cajasTot*bpc;
-    adv = { ...adv, totalBricks:Math.max(b,usados), bricksPorCaja:bpc, cajasPorPalet:k, palets:Math.floor(cajasTot/k), cajas:cajasTot%k,
-            bricksSueltos:Math.max(b-usados,0), paletsConsumidos:0, cajasConsumidos:0 };
+    const palEnc = v('fb-palenc'), bpc = v('fb-bpc'), k = v('fb-cpp');
+    if (!(palEnc>0 && bpc>0 && k>0)) { toast('⚠️ Indica palets a encajar, bricks por caja y cajas por palet'); return; }
+    b = palEnc*k*bpc;
+    if (b>T) { toast('⚠️ Faltan '+_fmtN(b-T)+' bricks para encajar '+palEnc+' palets'); return; }
+    adv = { ...l, fase:dest, totalBricks:b, bricksPorCaja:bpc, cajasPorPalet:k, palets:palEnc, cajas:0, bricksSueltos:0, paletsConsumidos:0, cajasConsumidos:0 };
+  } else {
+    b = v('fb-total');
+    if (b<=0) { toast('⚠️ Indica cuántos bricks pasan'); return; }
+    if (b>T) { toast('⚠️ Solo hay '+_fmtN(T)+' bricks'); return; }
+    adv = { ...l, fase:dest, totalBricks:b };
   }
+  const parcial = b<T;
   if (parcial) {
     // El lote se divide: lo que pasa va a un registro nuevo (mismo nº de producción) y el resto se queda donde estaba
     const da = _desglose(b, l), dr = _desglose(T-b, l);

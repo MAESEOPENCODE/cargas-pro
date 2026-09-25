@@ -5350,7 +5350,7 @@ async function confirmarFaseBrik() {
   if (parcial) {
     // El lote se divide: lo que pasa va a un registro nuevo (mismo nº de producción) y el resto se queda donde estaba
     const da = _desglose(b, l), dr = _desglose(T-b, l);
-    adv = { ...adv, id:'lote_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), createdAt:Date.now(),
+    adv = { ...adv, id:'lote_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), createdAt:Date.now(), origenId:l.id,
             paletsBandejas:da.pb, bandejasSueltas:da.bs, bandejasIncompletas:da.bi, bricksIncompletos:da.bri };
     await fbSaveProduccion({ ...l, totalBricks:T-b, paletsBandejas:dr.pb, bandejasSueltas:dr.bs, bandejasIncompletas:dr.bi, bricksIncompletos:dr.bri });
   }
@@ -5609,10 +5609,22 @@ function cancelarEdicionLote(){
 window.editarLoteProduccion = editarLoteProduccion;
 window.cancelarEdicionLote = cancelarEdicionLote;
 function eliminarLoteProduccion(id){
-  confirm2('🗑','¿Eliminar lote?','Esta acción no se puede deshacer','Eliminar','',async()=>{
+  const l = producciones.find(x=>String(x.id)===String(id));
+  const origen = l && l.origenId ? producciones.find(x=>String(x.id)===String(l.origenId)) : null;
+  const msg = origen ? 'Sus bricks volverán al registro anterior en '+_FASE_TXT[origen.fase]+'.' : 'Esta acción no se puede deshacer';
+  confirm2('🗑','¿Eliminar lote?',msg,'Eliminar','',async()=>{
+    if (origen) {
+      // Suma de nuevo lo que se había restado al dividir el lote
+      await fbSaveProduccion({ ...origen,
+        totalBricks: (parseFloat(origen.totalBricks)||0) + (parseFloat(l.totalBricks)||0),
+        paletsBandejas: (parseFloat(origen.paletsBandejas)||0) + (parseFloat(l.paletsBandejas)||0),
+        bandejasSueltas: (parseFloat(origen.bandejasSueltas)||0) + (parseFloat(l.bandejasSueltas)||0),
+        bandejasIncompletas: (parseFloat(origen.bandejasIncompletas)||0) + (parseFloat(l.bandejasIncompletas)||0),
+        bricksIncompletos: (parseFloat(origen.bricksIncompletos)||0) + (parseFloat(l.bricksIncompletos)||0) });
+    }
     await fbDeleteProduccion(id);
     renderProduccionList();
-    toast('🗑 Lote eliminado');
+    toast(origen ? '🗑 Lote eliminado · bricks restaurados en '+_FASE_TXT[origen.fase] : '🗑 Lote eliminado');
   });
 }
 window.eliminarLoteProduccion = eliminarLoteProduccion;

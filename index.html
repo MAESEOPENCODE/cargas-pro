@@ -3833,8 +3833,8 @@ function actualizarAvisoStock() {
   aviso.style.background = hayFalta ? 'rgba(220,53,69,0.12)' : 'rgba(40,167,69,0.12)';
   aviso.style.color = hayFalta ? '#B02A37' : '#1E7E34';
   aviso.innerHTML = filas.map(f => {
-    const epTxt = [f.ep.llenado>0 ? `${_fmtN(f.ep.llenado)} en llenado` : '', f.ep.etiquetado>0 ? `${_fmtN(f.ep.etiquetado)} etiquetados sin encajar` : ''].filter(Boolean).join(' + ');
-    return `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}${f.prod?' · '+f.prod:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}${epTxt?` · 🧃 Además hay ${epTxt} (sin encajar)`:''}`;
+    const epTxt = [f.ep.llenado>0 ? `${_fmtN(f.ep.llenado)} sin etiquetar` : '', f.ep.etiquetado>0 ? `${_fmtN(f.ep.etiquetado)} sin encajar` : ''].filter(Boolean).join(' + ');
+    return `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}${f.prod?' · '+f.prod:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}${epTxt?` · 🧃 Además hay ${epTxt}`:''}`;
   }).join('<br>');
 }
 window.actualizarAvisoStock = actualizarAvisoStock;

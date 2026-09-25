@@ -2246,14 +2246,6 @@ input[type=password],input[type=email]{text-transform:none}
   <select id="fGrupo" onchange="render()"><option value="">Todos los clientes</option></select>
   <select id="fMuelle" onchange="render()"><option value="">Todos los muelles</option></select>
   <select id="fProducto" onchange="render()"><option value="">Todos los productos</option></select>
-  <select id="fFase" onchange="render()">
-    <option value="">Todas las fases</option>
-    <option value="botella">🍾 Botella</option>
-    <option value="llenado">🧃 Llenado</option>
-    <option value="esperando_etiquetado">🧃 Sin etiquetar</option>
-    <option value="etiquetado">🧃 Etiquetado (sin encajar)</option>
-    <option value="encajado">🧃 Encajado/Paletizado</option>
-  </select>
   <input type="date" id="fFechaDesde" onchange="filtroHoyActivo=false;filtroMañanaActivo=false;resetHoyBtn();resetMañanaBtn();render()">
   <input type="date" id="fFechaHasta" onchange="filtroHoyActivo=false;filtroMañanaActivo=false;resetHoyBtn();resetMañanaBtn();render()">
 </div>
@@ -2431,6 +2423,8 @@ input[type=password],input[type=email]{text-transform:none}
             <div class="fg"><label>📦 Cajas</label><input id="f-cajas" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
             <div class="fg"><label>📦 Cajas por palet</label><input id="f-cpp" placeholder="0" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
             <div class="fg"><label>🧮 Total cajas</label><input id="f-totalcajas" placeholder="0" readonly tabindex="-1" style="font-weight:800"></div>
+            <div class="fg"><label>🔢 Uds./caja</label><input id="f-udscaja" placeholder="Bricks o botellas" inputmode="numeric" oninput="actualizarAvisoStock()"></div>
+            <div class="fg"><label>🧮 Total unidades</label><input id="f-totalunidades" placeholder="0" readonly tabindex="-1" style="font-weight:800"></div>
           </div>
           <div id="aviso-stock" style="display:none;margin-top:6px;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:600"></div>
           <div class="fgrid" style="margin-top:8px">
@@ -2481,22 +2475,6 @@ input[type=password],input[type=email]{text-transform:none}
             <option value="terminado">🔵 Terminado</option>
             <option value="revision">🟠 Revisión</option>
             <option value="cargado">🟢 Cargado</option>
-          </select>
-        </div>
-        <div class="fg"><label>🏭 Tipo de línea</label>
-          <select id="f-tipolinea" onchange="toggleFaseBrik()">
-            <option value="botella">🍾 Botella (línea continua)</option>
-            <option value="brik">🧃 Brik (multi-fase)</option>
-          </select>
-        </div>
-      </div>
-      <div class="fgrid full" id="bloque-fase-brik" style="display:none;margin-top:10px">
-        <div class="fg"><label>📍 Fase de producción</label>
-          <select id="f-fase">
-            <option value="llenado">1️⃣ Llenado</option>
-            <option value="esperando_etiquetado">2️⃣ Esperando etiquetado</option>
-            <option value="etiquetado">3️⃣ Etiquetado</option>
-            <option value="encajado">4️⃣ Encajado / Paletizado</option>
           </select>
         </div>
       </div>
@@ -3299,7 +3277,6 @@ function render() {
   const gf = document.getElementById('fGrupo').value;
   const mf = document.getElementById('fMuelle').value;
   const pf = document.getElementById('fProducto').value;
-  const ff = document.getElementById('fFase').value;
   const fd = document.getElementById('fFechaDesde').value;
   const fh = document.getElementById('fFechaHasta').value;
 
@@ -3311,9 +3288,8 @@ function render() {
       const txt=[p.num,p.grupo,p.producto,p.ref,p.mat1,p.mat2,p.notas,p.pais,p.muelle,p.transportista].join(' ').toLowerCase();
       const dc = cargDay(p);
       const fechaOk = (!fd || (dc && dc >= fd)) && (!fh || (dc && dc <= fh));
-      const faseOk = !ff || (ff==='botella' ? p.tipoLinea!=='brik' : p.faseBrik===ff);
       return p.status==='cargado' && dc && dc < hoy
-        && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fechaOk;
+        && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fechaOk;
     });
     document.getElementById('countLbl').textContent = filtered.length + ' pedido'+(filtered.length!==1?'s':'');
     if (activeView==='table') { renderTable(filtered); return; }
@@ -3338,8 +3314,7 @@ function render() {
     } else {
       statusOk = p.status===ts;
     }
-    const faseOk = !ff || (ff==='botella' ? p.tipoLinea!=='brik' : p.faseBrik===ff);
-    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fechaOk;
+    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fechaOk;
   });
   document.getElementById('countLbl').textContent = filtered.length + ' pedido'+(filtered.length!==1?'s':'');
   if (activeView==='table') { renderTable(filtered); return; }
@@ -3382,13 +3357,13 @@ function cardHtmlHistorico(p) {
   return `<div class="pedido-card status-${p.status}" style="opacity:.88">
     <div class="pedido-top">
       <div class="pedido-top-row1">${p.num?`<span class="pedido-num">#${p.num}</span>`:''}<span class="pedido-empresa">${p.grupo||'—'}</span></div>
-      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span>${lineaBadgeHtml(p)}<span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span style="font-size:9px;font-family:var(--font-mono);color:#9575CD;background:#EDE7F6;padding:2px 7px;border-radius:10px;letter-spacing:.3px">HISTÓRICO</span><button class="tbl-btn tbl-edit" data-action="edit-hist" data-id="${p.id}" title="Corregir datos" style="font-size:13px;padding:3px 7px">✏️</button></span></div>
+      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span><span style="margin-left:auto;display:flex;align-items:center;gap:6px"><span style="font-size:9px;font-family:var(--font-mono);color:#9575CD;background:#EDE7F6;padding:2px 7px;border-radius:10px;letter-spacing:.3px">HISTÓRICO</span><button class="tbl-btn tbl-edit" data-action="edit-hist" data-id="${p.id}" title="Corregir datos" style="font-size:13px;padding:3px 7px">✏️</button></span></div>
     </div>
     <div class="pedido-body">
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}${formatoHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}${unidadesInfoHtml(p)}${formatoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
@@ -3457,6 +3432,10 @@ function totalCajasHtml(p) {
   const t = parseInt(p.totalCajas)||0;
   return (p.cpp && t) ? `<div class="info-block sm"><div class="info-label">Total cajas</div><span class="tag tag-palets">${t}</span></div>` : '';
 }
+function unidadesInfoHtml(p) {
+  const t = parseInt(p.totalUnidades)||0;
+  return (p.udsCaja && t) ? `<div class="info-block sm"><div class="info-label">🧃 Total unidades</div><span class="tag" style="background:#FFF3CD;color:#7A5B00;border-color:#FFE69C">${t}</span></div>` : '';
+}
 // Progreso de cajas cargadas vs. total del pedido (análogo a paletsInfoHtml)
 function cajasInfoHtml(p) {
   const total = parseInt(p.cajas)||0;
@@ -3489,6 +3468,7 @@ function productosExtraHtml(p) {
         ${pe.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${pe.producto}</span></div>`:''}
         ${formatoHtml(pe)}${_progresoExtraHtml(pe.uds, pe.udsCargados, 'Palets')}
         ${_progresoExtraHtml(pe.cajas, pe.cajasCargados, 'Cajas')}
+        ${totalCajasHtml(pe)}${unidadesInfoHtml(pe)}
         ${pe.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${pe.europalets}</span></div>`:''}
         ${pe.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${pe.pais}</span></div>`:''}
       </div>`).join('');
@@ -3506,22 +3486,19 @@ function cardHtml(p, esCamionCompartido=false) {
   const terminarBtn = (p.status==='pendiente'||p.status==='revision')
     ? `<button class="tbl-btn" data-action="terminar" data-id="${eid}" title="Marcar como terminado" style="background:rgba(0,80,179,0.10);color:var(--sap-blue);border-color:rgba(0,80,179,0.25)">✅</button>`
     : '';
-  const avanzarFaseBtn = (p.tipoLinea==='brik' && p.faseBrik!=='encajado' && p.status!=='cargado')
-    ? `<button class="tbl-btn" data-action="avanzar-fase" data-id="${eid}" title="Avanzar fase de producción" style="background:rgba(122,91,0,0.10);color:#7A5B00;border-color:rgba(122,91,0,0.25)">▶️</button>`
-    : '';
   const actions=p.status==='cargado'
     ?`<button class="tbl-btn tbl-edit" data-action="edit" data-id="${eid}" title="Editar">✏️</button><button class="tbl-btn tbl-reabrir" data-action="reabrir" data-id="${eid}" title="Reabrir">↩️</button><button class="tbl-btn tbl-del" data-action="del" data-id="${eid}" title="Eliminar">🗑️</button>`
-    :`<button class="tbl-btn tbl-edit" data-action="edit" data-id="${eid}" title="Editar">✏️</button>${avanzarFaseBtn}${terminarBtn}<button class="tbl-btn tbl-cargar" data-action="cargar" data-id="${eid}" title="Cargar">🚛</button><button class="tbl-btn tbl-del" data-action="del" data-id="${eid}" title="Eliminar">🗑️</button>`;
+    :`<button class="tbl-btn tbl-edit" data-action="edit" data-id="${eid}" title="Editar">✏️</button>${terminarBtn}<button class="tbl-btn tbl-cargar" data-action="cargar" data-id="${eid}" title="Cargar">🚛</button><button class="tbl-btn tbl-del" data-action="del" data-id="${eid}" title="Eliminar">🗑️</button>`;
   return `<div class="pedido-card status-${p.status}${esCamionCompartido?' camion-compartido':''}">
     <div class="pedido-top">
       <div class="pedido-top-row1">${p.num?`<span class="pedido-num">#${p.num}</span>`:''}<span class="pedido-empresa">${p.grupo||'—'}</span></div>
-      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span>${lineaBadgeHtml(p)}<span style="margin-left:auto;display:flex;gap:3px;flex-shrink:0">${actions}</span></div>
+      <div class="pedido-top-row2">${fecha?`<span class="pedido-fecha">${fecha}</span>`:''}<span class="status-pill ${pillClass}">${pillLabel}</span><span style="margin-left:auto;display:flex;gap:3px;flex-shrink:0">${actions}</span></div>
     </div>
     <div class="pedido-body">
       <div class="info-row">
         ${p.producto?`<div class="info-block md"><div class="info-label">📦 Producto</div><span class="tag tag-producto">${p.producto}</span></div>`:''}
         ${p.ref?`<div class="info-block lg"><div class="info-label">Referencia</div><div class="info-val">${p.ref}</div></div>`:''}
-        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}${formatoHtml(p)}
+        ${paletsInfoHtml(p)}${cajasInfoHtml(p)}${totalCajasHtml(p)}${unidadesInfoHtml(p)}${formatoHtml(p)}
         ${p.europalets?`<div class="info-block sm"><div class="info-label">🟫 Euros</div><span class="tag tag-palets" style="background:#FFE0B2;color:#6D4C41;border-color:#FFCC80">${p.europalets}</span></div>`:''}
         ${p.pais?`<div class="info-block md"><div class="info-label">País</div><span class="tag tag-pais">${p.pais}</span></div>`:''}
       </div>
@@ -3600,7 +3577,6 @@ document.addEventListener('click', function(e) {
   if (action === 'edit')    openPedidoModal(id);
   if (action === 'edit-hist') openPedidoModalHist(id);
   if (action === 'terminar') terminarPedido(id);
-  if (action === 'avanzar-fase') avanzarFase(id);
   if (action === 'cargar')  openCargarModal(id);
   if (action === 'del')     delPedido(id);
   if (action === 'reabrir') reabrir(id);
@@ -3617,14 +3593,12 @@ function openPedidoModal(idOrNull) {
     const fid = k==='hora_salida'?'f-hora-salida':'f-'+k;
     const el = document.getElementById(fid); if(el) el.value = p?.[k]||'';
   });
+  const fUdsCaja = document.getElementById('f-udscaja'); if (fUdsCaja) fUdsCaja.value = p?.udsCaja||'';
   actualizarAvisoStock();
   // Cargar productos extra (multi-producto)
   cargarProductosExtra(p?.productosExtra||[]);
   _setProdRefMain(p?.prodRef||'');
   document.getElementById('f-status').value = p?.status||'pendiente';
-  document.getElementById('f-tipolinea').value = p?.tipoLinea||'botella';
-  document.getElementById('f-fase').value = p?.faseBrik||'llenado';
-  toggleFaseBrik();
   document.getElementById('f-fecha').value  = p?.fecha||new Date().toISOString().slice(0,10);
   // Restaurar checkbox "Sin intercambio" y el campo albarán
   const sinIntEl = document.getElementById('f-sin-intercambio');
@@ -3682,11 +3656,9 @@ function duplicarPedido() {
         const el = document.getElementById(fid);
         if (el) el.value = copia[k] != null ? copia[k] : '';
       });
+      const fUdsCaja = document.getElementById('f-udscaja'); if (fUdsCaja) fUdsCaja.value = copia.udsCaja||'';
       document.getElementById('f-fecha').value   = copia.fecha;
       document.getElementById('f-status').value  = copia.status;
-      document.getElementById('f-tipolinea').value = copia.tipoLinea||'botella';
-      document.getElementById('f-fase').value = copia.faseBrik||'llenado';
-      toggleFaseBrik();
       actualizarAvisoStock();
       const sinIntEl = document.getElementById('f-sin-intercambio');
       if (sinIntEl) sinIntEl.checked = false;
@@ -3759,6 +3731,8 @@ function addProductoExtra(datos) {
       <div class="fg"><label>🍶 Formato</label><input class="pe-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off" value="${_esc(v.formato)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>📦 Cajas por palet</label><input class="pe-cpp" placeholder="0" inputmode="numeric" value="${_esc(v.cpp)}" oninput="actualizarAvisoStock()"></div>
       <div class="fg"><label>🧮 Total cajas</label><input class="pe-totalcajas" placeholder="0" readonly tabindex="-1" style="font-weight:800" value="${_esc(v.totalCajas)}"></div>
+      <div class="fg"><label>🔢 Uds./caja</label><input class="pe-udscaja" placeholder="Bricks o botellas" inputmode="numeric" value="${_esc(v.udsCaja)}" oninput="actualizarAvisoStock()"></div>
+      <div class="fg"><label>🧮 Total unidades</label><input class="pe-totalunidades" placeholder="0" readonly tabindex="-1" style="font-weight:800" value="${_esc(v.totalUnidades)}"></div>
       <div class="fg"><label>🟫 Euros</label><input class="pe-europalets" placeholder="0" type="number" min="0" max="999" maxlength="3" inputmode="numeric" value="${_esc(v.europalets)}"></div>
     </div>
     <div class="fgrid" style="margin-top:8px">
@@ -3780,6 +3754,8 @@ function getProductosExtra() {
     formato:     el.querySelector('.pe-formato')?.value.trim()||'',
     cpp:         el.querySelector('.pe-cpp')?.value.trim()||'',
     totalCajas:  el.querySelector('.pe-totalcajas')?.value.trim()||'',
+    udsCaja:     el.querySelector('.pe-udscaja')?.value.trim()||'',
+    totalUnidades: el.querySelector('.pe-totalunidades')?.value.trim()||'',
     europalets:  parseInt(el.querySelector('.pe-europalets')?.value)||0,
     pais:        el.querySelector('.pe-pais')?.value.trim()||'',
     udsCargados: parseFloat(el.dataset.udscargados)||0,
@@ -3802,10 +3778,15 @@ window.removeProductoExtra = removeProductoExtra;
 function _totCajas(pal,cpp,caj){ return (parseFloat(pal)||0)*(parseFloat(cpp)||0)+(parseFloat(caj)||0); }
 function calcTotalesCajas() {
   const g=id=>document.getElementById(id);
-  if (g('f-totalcajas')) g('f-totalcajas').value = _totCajas(g('f-uds')?.value,g('f-cpp')?.value,g('f-cajas')?.value)||'';
+  const totMain = _totCajas(g('f-uds')?.value,g('f-cpp')?.value,g('f-cajas')?.value);
+  if (g('f-totalcajas')) g('f-totalcajas').value = totMain||'';
+  if (g('f-totalunidades')) g('f-totalunidades').value = (totMain * (parseFloat(g('f-udscaja')?.value)||0))||'';
   document.querySelectorAll('#productos-extra-container .producto-extra').forEach(el=>{
+    const totExtra = _totCajas(el.querySelector('.pe-uds')?.value,el.querySelector('.pe-cpp')?.value,el.querySelector('.pe-cajas')?.value);
     const t=el.querySelector('.pe-totalcajas');
-    if (t) t.value = _totCajas(el.querySelector('.pe-uds')?.value,el.querySelector('.pe-cpp')?.value,el.querySelector('.pe-cajas')?.value)||'';
+    if (t) t.value = totExtra||'';
+    const tu=el.querySelector('.pe-totalunidades');
+    if (tu) tu.value = (totExtra * (parseFloat(el.querySelector('.pe-udscaja')?.value)||0))||'';
   });
 }
 function actualizarAvisoStock() {
@@ -3841,32 +3822,6 @@ function actualizarAvisoStock() {
 }
 window.actualizarAvisoStock = actualizarAvisoStock;
 
-// ══ TIPO DE LÍNEA (Brik multi-fase vs Botella línea continua) ══
-function toggleFaseBrik() {
-  const tipoEl = document.getElementById('f-tipolinea');
-  const bloque = document.getElementById('bloque-fase-brik');
-  if (!tipoEl || !bloque) return;
-  bloque.style.display = tipoEl.value === 'brik' ? '' : 'none';
-}
-window.toggleFaseBrik = toggleFaseBrik;
-
-const FASE_BRIK_LABEL = {
-  llenado: '1️⃣ Llenado',
-  esperando_etiquetado: '2️⃣ Esp. etiquetado',
-  etiquetado: '3️⃣ Etiquetado',
-  encajado: '4️⃣ Encajado/Palet.'
-};
-
-// Badge de tipo de línea + fase, usado en las tarjetas de pedido
-function lineaBadgeHtml(p) {
-  if (!p.tipoLinea) return '';
-  if (p.tipoLinea === 'brik') {
-    const faseTxt = FASE_BRIK_LABEL[p.faseBrik] || '';
-    return `<span class="tag" style="background:#FFF3CD;color:#7A5B00;border-color:#FFE69C;white-space:nowrap">🧃 Brik${faseTxt?' · '+faseTxt:''}</span>`;
-  }
-  return `<span class="tag" style="background:#E0F2FE;color:#075985;border-color:#BAE6FD;white-space:nowrap">🍾 Botella</span>`;
-}
-
 function checkRefDuplicado() {
   const ref = document.getElementById('f-ref').value.trim();
   const warn = document.getElementById('ref-dup-warn');
@@ -3886,15 +3841,13 @@ async function savePedido() {
   const p = {
     id, createdAt: editId ? (pedidos.find(x=>x.id===editId)?.createdAt || Date.now()) : Date.now(),
     num:get('f-num'), grupo:get('f-grupo'), producto:get('f-producto'), ref:get('f-ref'),
-    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), formato:get('f-formato'), prodRef:(document.getElementById('f-prodRef')?.dataset.want||''), pais:get('f-pais'),
+    uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), udsCaja:get('f-udscaja'), totalUnidades:get('f-totalunidades'), formato:get('f-formato'), prodRef:(document.getElementById('f-prodRef')?.dataset.want||''), pais:get('f-pais'),
     europalets: parseInt(get('f-europalets'))||0,
     mat1:get('f-mat1').toUpperCase(), mat2:get('f-mat2').toUpperCase(),
     hora:document.getElementById('f-hora').value,
     hora_salida:document.getElementById('f-hora-salida').value,
     muelle:get('f-muelle'), transportista:get('f-transportista'),
     status:document.getElementById('f-status').value,
-    tipoLinea: document.getElementById('f-tipolinea')?.value || 'botella',
-    faseBrik: (document.getElementById('f-tipolinea')?.value === 'brik') ? (document.getElementById('f-fase')?.value || 'llenado') : '',
     fecha:document.getElementById('f-fecha').value,
     notas:get('f-notas'),
     ec: parseInt(get('f-ec'))||0,
@@ -3936,7 +3889,7 @@ async function _doSavePedido(p) {
 
 function limpiarPedidoModal() {
   confirm2('🗑','¿Limpiar formulario?','Se borrarán todos los campos','Limpiar','',()=>{
-    ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','formato','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
+    ['num','grupo','producto','ref','uds','cajas','cpp','totalcajas','udscaja','totalunidades','formato','pais','mat1','mat2','muelle','transportista','notas','ec','ed','europalets'].forEach(k=>{ const el=document.getElementById('f-'+k); if(el) el.value=''; });
     const avisoStockEl = document.getElementById('aviso-stock'); if(avisoStockEl) avisoStockEl.style.display='none';
     cargarProductosExtra([]);
     _setProdRefMain('');
@@ -3946,9 +3899,6 @@ function limpiarPedidoModal() {
     const fHora = document.getElementById('f-hora'); if(fHora) fHora.value='';
     const fHoraSalida = document.getElementById('f-hora-salida'); if(fHoraSalida) fHoraSalida.value='';
     document.getElementById('f-status').value='pendiente';
-    document.getElementById('f-tipolinea').value='botella';
-    document.getElementById('f-fase').value='llenado';
-    toggleFaseBrik();
     document.getElementById('f-fecha').value=new Date().toISOString().slice(0,10);
   });
 }
@@ -4162,18 +4112,6 @@ function terminarPedido(id) {
   toast('✅ Pedido marcado como Terminado');
 }
 
-// Avanza la fase de producción de un pedido tipo Brik (Llenado → Esp. etiquetado → Etiquetado → Encajado)
-const ORDEN_FASE_BRIK = ['llenado','esperando_etiquetado','etiquetado','encajado'];
-function avanzarFase(id) {
-  const p=pedidos.find(x=>String(x.id)===String(id)); if(!p||p.tipoLinea!=='brik') return;
-  const i = ORDEN_FASE_BRIK.indexOf(p.faseBrik||'llenado');
-  if (i === -1 || i >= ORDEN_FASE_BRIK.length-1) { toast('🧃 Ya está en la última fase (Encajado/Paletizado)'); return; }
-  const nuevaFase = ORDEN_FASE_BRIK[i+1];
-  fbSave({...p, faseBrik: nuevaFase});
-  toast('🧃 Fase actualizada: ' + (FASE_BRIK_LABEL[nuevaFase]||nuevaFase));
-}
-window.avanzarFase = avanzarFase;
-
 
 
 function delPedido(id) {
@@ -4276,7 +4214,6 @@ function _getFilteredPedidos() {
   const gf = document.getElementById('fGrupo').value;
   const mf = document.getElementById('fMuelle').value;
   const pf = document.getElementById('fProducto').value;
-  const ff = document.getElementById('fFase').value;
   const fd = document.getElementById('fFechaDesde').value;
   const fh = document.getElementById('fFechaHasta').value;
   const hoy = new Date().toISOString().slice(0,10);
@@ -4284,14 +4221,13 @@ function _getFilteredPedidos() {
   const ts = sm[activeTab];
   return pedidos.filter(p=>{
     const txt=[p.num,p.grupo,p.producto,p.ref,p.mat1,p.mat2,p.notas,p.pais,p.muelle,p.transportista].join(' ').toLowerCase();
-    const faseOk = !ff || (ff==='botella' ? p.tipoLinea!=='brik' : p.faseBrik===ff);
-    if(activeTab==='historico'){ const dc=cargDay(p); const fOk=(!fd||(dc&&dc>=fd))&&(!fh||(dc&&dc<=fh)); return p.status==='cargado' && dc && dc < hoy && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fOk; }
+    if(activeTab==='historico'){ const dc=cargDay(p); const fOk=(!fd||(dc&&dc>=fd))&&(!fh||(dc&&dc<=fh)); return p.status==='cargado' && dc && dc < hoy && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fOk; }
     const fechaOk = (!fd||(p.fecha&&p.fecha>=fd))&&(!fh||(p.fecha&&p.fecha<=fh));
     let statusOk;
     if(activeTab==='todos') statusOk = !(p.status==='cargado' && cargDay(p) && cargDay(p) < hoy);
     else if(activeTab==='cargados') statusOk = p.status==='cargado' && (!cargDay(p) || cargDay(p) >= hoy);
     else statusOk = p.status===ts;
-    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && faseOk && fechaOk;
+    return statusOk && (!q||txt.includes(q)) && (!gf||p.grupo===gf) && (!mf||p.muelle===mf) && (!pf||p.producto===pf) && fechaOk;
   });
 }
 
@@ -5483,12 +5419,14 @@ function _stepper(l) {
   const F = ['llenado','etiquetado','encajado'], T = ['Llenado','Etiquetado','Encajado'], C = ['#F5A623','#3B82F6','#22A559'], i = F.indexOf(l.fase||'llenado');
   return `<div style="display:flex;align-items:center;gap:4px;margin:8px 0 2px;font-size:11px;flex-wrap:wrap">${F.map((x,j)=>`<span style="padding:3px 9px;border-radius:999px;font-weight:${j===i?800:600};background:${j<=i?C[j]:'var(--surface2)'};color:${j<=i?'#fff':'var(--t3)'}">${T[j]}</span>`).join('<span style="color:var(--t3)">›</span>')}</div>`;
 }
-function _prLoteCard(l) {
+function _prLoteCard(l, opts) {
+  opts = opts || {};
   const d = _dispLote(l), enProc = l.tipo==='brik' && l.fase!=='encajado', agot = !enProc && d.palets<=0 && d.cajas<=0;
   const info = [l.marca, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+_fdate(l.caducidad):'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':''].filter(Boolean).join(' · ');
   return `<div style="background:${agot?'var(--surface2)':'var(--surface)'};opacity:${agot?0.6:1};border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="font-size:14px">${l.numProd||'Sin nº'}</b>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b style="font-size:14px">${l.numProd||'Sin nº'}</b>${opts.badge||''}</span>
       <span style="display:flex;gap:6px"><button class="tbl-btn" onclick="editarLoteProduccion('${l.id}')" title="Editar lote" style="font-size:14px;padding:6px 10px">✏️</button><button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:14px;padding:6px 10px">🗑️</button></span></div>
+    ${opts.art ? `<div style="font-weight:700;font-size:12.5px;margin-top:2px">${_esc((l.articulo||'').toUpperCase())}${l.formato?' · '+_esc((l.formato||'').toUpperCase()):''}</div>` : ''}
     ${info?`<div style="color:var(--t2);margin-top:3px;font-size:12px">${info}</div>`:''}
     ${_paraHtml(l)}
     ${l.tipo==='brik' ? _stepper(l)+_brikInfoHtml(l) : ''}
@@ -5501,6 +5439,73 @@ function _prDetalleHtml() {
   return `<div style="margin-bottom:12px"><div style="font-size:18px;font-weight:900">${_esc(g.articulo)}</div><div style="color:var(--t2);font-size:13px">${_esc(g.formato)}</div>
     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="background:var(--surface2);border-radius:12px;padding:8px 14px"><span style="font-size:26px;font-weight:900">${g.pal}</span> pal. <span style="color:var(--t2)">+ ${g.caj} cajas</span></div>${g.proc>0?`<div style="background:rgba(59,130,246,.15);color:#2563EB;border-radius:12px;padding:8px 14px;font-weight:800">🧃 ${_fmtN(g.proc)} bricks en proceso</div>`:''}</div></div>${lotes.map(_prLoteCard).join('')}`;
 }
+// ── Líneas de producto de un pedido (principal + extras), para cruzar con stock ──
+function _prLineasPedido(p) {
+  const lineas = [{ articulo:p.producto||'', formato:p.formato||'', prod:p.prodRef||'', pal:parseFloat(p.uds)||0, caj:parseFloat(p.cajas)||0 }];
+  (p.productosExtra||[]).forEach(pe => lineas.push({ articulo:pe.producto||'', formato:pe.formato||'', prod:pe.prodRef||'', pal:parseFloat(pe.uds)||0, caj:parseFloat(pe.cajas)||0 }));
+  return lineas.filter(l => l.articulo);
+}
+// ── Vista: pedidos pendientes cuyo stock/producción no llega ──
+function _prPedidosFaltantes() {
+  return pedidos
+    .filter(p => p.status !== 'cargado')
+    .map(p => {
+      const faltantes = _prLineasPedido(p)
+        .filter(l => producciones.some(x => (x.articulo||'').trim().toUpperCase() === l.articulo.trim().toUpperCase()))
+        .map(l => ({ ...l, pc: planConsumo(l.articulo, l.pal, l.caj, l.formato, p.id, l.prod, true) }))
+        .filter(l => l.pc.faltaPal > 0 || l.pc.faltaCaj > 0);
+      return { p, faltantes };
+    })
+    .filter(r => r.faltantes.length)
+    .sort((a, b) => (a.p.fecha||'9999').localeCompare(b.p.fecha||'9999'));
+}
+function _prPedidosHtml() {
+  const rows = _prPedidosFaltantes();
+  if (!rows.length) return '<div style="text-align:center;color:var(--t3);padding:30px 10px;font-size:13px">✅ No hay pedidos pendientes con falta de stock.</div>';
+  return `<div style="font-size:11.5px;color:var(--t3);margin-bottom:6px">${rows.length} pedido${rows.length!==1?'s':''} con falta de stock</div>` +
+    rows.map(({ p, faltantes }) => `<div onclick="prVerPedido('${p.id}')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-left:6px solid var(--dhl-red);border-radius:14px;padding:12px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b style="font-size:14px">${_esc(p.grupo||'—')}${p.num?' · #'+_esc(p.num):''}</b>${p.fecha?`<span style="color:var(--t2);font-size:12px;font-family:var(--font-mono)">${_fdate(p.fecha)}</span>`:''}</div>
+    ${faltantes.map(l => `<div style="margin-top:5px;font-size:12.5px;color:#B02A37">⚠️ ${_esc(l.articulo)}${l.formato?' · '+_esc(l.formato):''}: faltan ${_fmtN(l.pc.faltaPal)} pal. / ${_fmtN(l.pc.faltaCaj)} cajas</div>`).join('')}
+  </div>`).join('');
+}
+function prVerPedido(id) { closeProduccionModal(); openPedidoModal(id); }
+window.prVerPedido = prVerPedido;
+
+// ── Vista: listado plano de todos los lotes (sin agrupar por artículo) ──
+let _prLotesBusca = '';
+function _prLotesListHtml() {
+  const q = _normTxt(_prLotesBusca);
+  const lotes = [...producciones]
+    .filter(l => !q || _normTxt([l.articulo,l.formato,l.numProd,l.lote,l.marca].join(' ')).includes(q))
+    .sort((a,b) => (b.fecha||'').localeCompare(a.fecha||'') || (b.numProd||'').localeCompare(a.numProd||''));
+  if (!lotes.length) return '<div style="text-align:center;color:var(--t3);padding:30px 10px;font-size:13px">No hay lotes que coincidan.</div>';
+  return `<div style="font-size:11.5px;color:var(--t3);margin-bottom:6px">${lotes.length} lote${lotes.length!==1?'s':''}</div>` + lotes.map(l => _prLoteCard(l, {art:true})).join('');
+}
+function _prLotesHtml() {
+  return `<input id="pr-lotes-buscar" type="search" placeholder="🔎 Buscar artículo, lote, nº producción..." value="${_esc(_prLotesBusca)}" oninput="prLotesBuscar(this.value)" style="width:100%;padding:12px;font-size:15px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);margin-bottom:10px">
+    <div id="pr-lotes-list">${_prLotesListHtml()}</div>`;
+}
+function prLotesBuscar(v) { _prLotesBusca = v; const el = document.getElementById('pr-lotes-list'); if (el) el.innerHTML = _prLotesListHtml(); }
+window.prLotesBuscar = prLotesBuscar;
+
+// ── Vista: lotes por caducar, ordenados por proximidad ──
+function _prCaducarBadge(dias) {
+  if (dias < 0) return `<span style="background:#DC3545;color:#fff;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">CADUCADO ${Math.abs(dias)}d</span>`;
+  if (dias <= 7) return `<span style="background:#DC3545;color:#fff;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">⏳ ${dias}d</span>`;
+  if (dias <= 30) return `<span style="background:#F5A623;color:#1C1F26;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:800">⏳ ${dias}d</span>`;
+  return `<span style="background:var(--surface2);color:var(--t2);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700">${dias}d</span>`;
+}
+function _prCaducarHtml() {
+  const filas = producciones
+    .filter(l => l.caducidad)
+    .map(l => ({ l, d:_dispLote(l), dias:_diasCad(l.caducidad) }))
+    .filter(x => x.d.palets > 0 || x.d.cajas > 0)
+    .sort((a,b) => a.dias - b.dias);
+  if (!filas.length) return '<div style="text-align:center;color:var(--t3);padding:30px 10px;font-size:13px">No hay lotes con caducidad y stock disponible.</div>';
+  return `<div style="font-size:11.5px;color:var(--t3);margin-bottom:6px">${filas.length} lote${filas.length!==1?'s':''} con caducidad, de más próximo a más lejano</div>` +
+    filas.map(({l,dias}) => _prLoteCard(l, {art:true, badge:_prCaducarBadge(dias)})).join('');
+}
+
 function _prProcesoHtml() {
   const cols = [['llenado','Llenado','#F5A623'],['etiquetado','Etiquetado','#3B82F6'],['encajado','Encajado','#22A559']];
   const brik = producciones.filter(l=>l.tipo==='brik');
@@ -5511,10 +5516,15 @@ function _prProcesoHtml() {
     return `<div style="flex:1 0 220px;background:var(--surface2);border-radius:12px;padding:8px"><div style="background:${c};color:#fff;border-radius:8px;padding:7px 10px;font-weight:800;font-size:13px;display:flex;justify-content:space-between"><span>${t}</span><span>${_fmtN(tot)} bricks</span></div>${ls.length ? ls.map(mini).join('') : '<div style="font-size:12px;color:var(--t3);padding:12px 4px">Nada aquí</div>'}</div>`;
   }).join('') + '</div>';
 }
+const _PR_TABS = [['stock','📦 Stock'],['proceso','🧃 Proceso'],['pedidos','⚠️ Pedidos'],['lotes','📋 Lotes'],['caducar','⏳ Caducar']];
 function _prNavHtml() {
-  if (_prView==='stock' || _prView==='proceso') {
-    const T = (v,t) => `<button onclick="prIr('${v}')" style="flex:1;padding:10px;border:none;border-radius:10px;font-weight:800;font-size:13.5px;cursor:pointer;background:${_prView===v?'var(--dhl-yellow)':'var(--surface2)'};color:${_prView===v?'var(--dhl-dark)':'var(--t2)'}">${t}</button>`;
-    return `<div style="display:flex;gap:6px;margin-top:10px">${T('stock','📦 Stock')}${T('proceso','🧃 En proceso')}</div>`;
+  if (_PR_TABS.some(([v]) => v === _prView)) {
+    const nFalta = _prPedidosFaltantes().length;
+    const T = (v,t) => {
+      const badge = (v==='pedidos' && nFalta>0) ? `<span style="background:${_prView===v?'var(--dhl-dark)':'var(--dhl-red)'};color:#fff;border-radius:999px;padding:1px 6px;font-size:10px;margin-left:5px">${nFalta}</span>` : '';
+      return `<button onclick="prIr('${v}')" style="flex:0 0 auto;padding:9px 13px;border:none;border-radius:10px;font-weight:800;font-size:12.5px;white-space:nowrap;cursor:pointer;background:${_prView===v?'var(--dhl-yellow)':'var(--surface2)'};color:${_prView===v?'var(--dhl-dark)':'var(--t2)'}">${t}${badge}</button>`;
+    };
+    return `<div style="display:flex;gap:6px;margin-top:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px">${_PR_TABS.map(([v,t])=>T(v,t)).join('')}</div>`;
   }
   const back = (_prView==='form' && _prArt) ? 'detalle' : 'stock';
   return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><button onclick="prIr('${back}')" style="border:none;background:var(--surface2);border-radius:10px;padding:10px 14px;font-weight:800;font-size:13.5px;cursor:pointer">← Volver</button><b style="font-size:14px">${_prView==='form' ? (editLoteId?'Editar lote':'Nueva producción') : ''}</b></div>`;
@@ -5529,9 +5539,12 @@ function renderProduccionList() {
   document.getElementById('pr-nav').innerHTML = _prNavHtml();
   if (_prView==='stock') cont.innerHTML = _prStockHtml();
   else if (_prView==='proceso') cont.innerHTML = _prProcesoHtml();
+  else if (_prView==='pedidos') cont.innerHTML = _prPedidosHtml();
+  else if (_prView==='lotes') cont.innerHTML = _prLotesHtml();
+  else if (_prView==='caducar') cont.innerHTML = _prCaducarHtml();
   else if (_prView==='detalle') cont.innerHTML = _prDetalleHtml();
 }
-function prIr(v) { _prView = v; if (v==='stock' || v==='proceso') _prArt = ''; renderProduccionList(); const sc = document.querySelector('#mProduccion .modal-scroll'); if (sc) sc.scrollTop = 0; }
+function prIr(v) { _prView = v; if (_PR_TABS.some(([x])=>x===v)) _prArt = ''; renderProduccionList(); const sc = document.querySelector('#mProduccion .modal-scroll'); if (sc) sc.scrollTop = 0; }
 function prAbrirArt(k) { _prArt = decodeURIComponent(k); prIr('detalle'); }
 function prFiltro(f) { _prFiltro = f; renderProduccionList(); }
 function prBuscar(v) { _prBusca = v; const g = document.getElementById('pr-grid'); if (g) g.innerHTML = _prGridHtml(); }

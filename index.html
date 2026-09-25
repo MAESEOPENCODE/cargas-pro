@@ -691,7 +691,7 @@ tr:hover td{background:rgba(245,166,35,0.06)}
 }
 .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .fgrid.full{grid-template-columns:1fr}
-.fg{display:flex;flex-direction:column;gap:6px}
+.fg{display:flex;flex-direction:column;gap:6px;min-width:0}
 .fg label{
   font-family:var(--font-body);font-size:11px;text-transform:uppercase;
   letter-spacing:.9px;color:#B87000;font-weight:800;margin-bottom:0;
@@ -2960,6 +2960,20 @@ function stockDisponible(articulo, formato, prodRef) {
   });
   return { palets, cajas };
 }
+// Bricks de un artículo que ya están producidos pero aún NO encajados (llenado/esperando etiquetado/etiquetado).
+// No cuentan como stock en palets/cajas, pero es útil saber que existen antes de descartar el pedido por falta de stock.
+function stockEnProceso(articulo, formato, prodRef) {
+  const key = (articulo||'').trim().toUpperCase();
+  if (!key) return { llenado: 0, etiquetado: 0 };
+  let llenado = 0, etiquetado = 0;
+  producciones.forEach(l => {
+    if (l.tipo !== 'brik' || l.fase === 'encajado') return;
+    if ((l.articulo||'').trim().toUpperCase() !== key || !_fmtOk(l,formato) || (prodRef && l.numProd!==prodRef)) return;
+    const b = parseFloat(l.totalBricks)||0;
+    if (l.fase === 'etiquetado') etiquetado += b; else llenado += b;
+  });
+  return { llenado, etiquetado };
+}
 // Plan FIFO (caducidad más próxima): coge los palets pedidos y las cajas necesarias, rompiendo palet si hace falta
 function planConsumo(articulo, pal, caj, formato, pedidoId, prodRef, soloProd) {
   const key=(articulo||'').trim().toUpperCase();
@@ -3809,16 +3823,19 @@ function actualizarAvisoStock() {
     .map(l => {
       const s = stockDisponible(l.articulo, l.formato, l.prod);
       const pc = planConsumo(l.articulo, l.pal, l.caj, l.formato, editId, l.prod, true); const falta = pc.faltaPal>0 || pc.faltaCaj>0;
-      const sinCpp = producciones.some(x => (x.articulo||'').trim().toUpperCase()===l.articulo.toUpperCase() && !(parseFloat(x.cajasPorPalet)>0)); return { ...l, s, falta, sinCpp };
+      const sinCpp = producciones.some(x => (x.articulo||'').trim().toUpperCase()===l.articulo.toUpperCase() && !(parseFloat(x.cajasPorPalet)>0));
+      const ep = stockEnProceso(l.articulo, l.formato, l.prod);
+      return { ...l, s, falta, sinCpp, ep };
     });
   if (!filas.length) { aviso.style.display = 'none'; return; }
   const hayFalta = filas.some(f => f.falta);
   aviso.style.display = '';
   aviso.style.background = hayFalta ? 'rgba(220,53,69,0.12)' : 'rgba(40,167,69,0.12)';
   aviso.style.color = hayFalta ? '#B02A37' : '#1E7E34';
-  aviso.innerHTML = filas.map(f =>
-    `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}${f.prod?' · '+f.prod:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}`
-  ).join('<br>');
+  aviso.innerHTML = filas.map(f => {
+    const epTxt = [f.ep.llenado>0 ? `${_fmtN(f.ep.llenado)} en llenado` : '', f.ep.etiquetado>0 ? `${_fmtN(f.ep.etiquetado)} etiquetados sin encajar` : ''].filter(Boolean).join(' + ');
+    return `${f.falta?'⚠️ Stock insuficiente':'✅ Stock disponible'} de "${f.articulo}${f.formato?' · '+f.formato:''}${f.prod?' · '+f.prod:''}": ${f.s.palets} pal. / ${f.s.cajas} cajas${f.falta&&f.sinCpp?' · EDITA EL LOTE (✏️) Y ANOTA LAS CAJAS POR PALET':''}${epTxt?` · 🧃 Además hay ${epTxt} (sin encajar)`:''}`;
+  }).join('<br>');
 }
 window.actualizarAvisoStock = actualizarAvisoStock;
 

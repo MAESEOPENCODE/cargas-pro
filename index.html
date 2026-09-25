@@ -3434,7 +3434,7 @@ function totalCajasHtml(p) {
 }
 function unidadesInfoHtml(p) {
   const t = parseInt(p.totalUnidades)||0;
-  return (p.udsCaja && t) ? `<div class="info-block sm"><div class="info-label">🧃 Total unidades</div><span class="tag" style="background:#FFF3CD;color:#7A5B00;border-color:#FFE69C">${t}</span></div>` : '';
+  return (p.udsCaja && t) ? `<div class="info-block sm"><div class="info-label">Uds. totales</div><span class="tag" style="background:#FFF3CD;color:#7A5B00;border-color:#FFE69C">${t}</span></div>` : '';
 }
 // Progreso de cajas cargadas vs. total del pedido (análogo a paletsInfoHtml)
 function cajasInfoHtml(p) {

@@ -2955,7 +2955,9 @@ function refrescarProdSelects() {
 function _setProdRefMain(v) { const el = document.getElementById('f-prodRef'); if (el) el.dataset.want = v||''; refrescarProdSelects(); }
 window._setProdRefMain = _setProdRefMain;
 function _paraHtml(l) {
-  const m = new Map((l.pedidosRef||[]).map(r=>[String(r.id), r.txt]));
+  const vivos = (l.pedidosRef||[]).filter(r => pedidos.some(p => String(p.id)===String(r.id) && p.status!=='cargado'));
+  if (vivos.length !== (l.pedidosRef||[]).length) fbSaveProduccion({ ...l, pedidosRef: vivos }); // limpia referencias a pedidos ya borrados o cargados
+  const m = new Map(vivos.map(r=>[String(r.id), r.txt]));
   if (l.numProd) pedidos.forEach(p => {
     if (p.status==='cargado') return;
     if (p.prodRef===l.numProd || (p.productosExtra||[]).some(e=>e.prodRef===l.numProd)) m.set(String(p.id), (p.grupo||'')+(p.num?' #'+p.num:''));

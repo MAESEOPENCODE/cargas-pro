@@ -2757,11 +2757,11 @@ input[type=password],input[type=email]{text-transform:none}
       <div id="pr-view-form" style="display:none">
       <div class="fsec">Datos de la producción</div>
       <div class="fgrid">
-        <div class="fg"><label>📦 Artículo</label><input id="pr-articulo" placeholder="Gazpacho, Salsa brava..." list="dl-productos" autocomplete="off"></div>
+        <div class="fg"><label>📦 Artículo</label><input id="pr-articulo" placeholder="Gazpacho, Salsa brava..." list="dl-productos" autocomplete="off" onchange="prRecordarPorArticulo()"></div>
         <div class="fg"><label>🏷️ Marca</label><input id="pr-marca" placeholder="Marca" autocomplete="off"></div>
       </div>
       <div class="fgrid full">
-        <div class="fg"><label>🍶 Formato</label><input id="pr-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off"></div>
+        <div class="fg"><label>🍶 Formato</label><input id="pr-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" autocomplete="off" onchange="prRecordarPorArticulo()"></div>
       </div>
       <div class="fgrid full">
         <div class="fg"><label>🏭 Tipo de producción</label><select id="pr-tipo" onchange="prTipoChange()"><option value="normal">🍶 Botella / otros (palets y cajas)</option><option value="brik">🧃 Brik (bandejas → cajas)</option></select></div>
@@ -5173,6 +5173,34 @@ function prTipoChange() {
   prBrikCalc();
 }
 window.prBrikCalc = prBrikCalc; window.prTipoChange = prTipoChange;
+// Recuerda, por artículo (+formato si se ha indicado), las últimas cajas/palet, bricks/caja y bricks/bandeja
+// usadas en una producción anterior — solo rellena los campos que estén vacíos, sin pisar lo que ya se ha escrito.
+function prRecordarPorArticulo() {
+  const articulo = document.getElementById('pr-articulo').value.trim().toUpperCase();
+  if (!articulo) return;
+  const formato = document.getElementById('pr-formato').value.trim();
+  const coincide = l => (l.articulo||'').trim().toUpperCase() === articulo && _fmtOk(l, formato);
+  const masReciente = arr => arr.sort((a,b) => (b.createdAt||0)-(a.createdAt||0))[0];
+
+  const cppEl = document.getElementById('pr-cpp');
+  if (cppEl && !cppEl.value) {
+    const ult = masReciente(producciones.filter(l => l.tipo==='normal' && coincide(l) && parseFloat(l.cajasPorPalet)>0));
+    if (ult) cppEl.value = ult.cajasPorPalet;
+  }
+  const bpbEl = document.getElementById('pr-bpb');
+  if (bpbEl && !bpbEl.value) {
+    const ult = masReciente(producciones.filter(l => l.tipo==='brik' && coincide(l) && parseFloat(l.bricksPorBandeja)>0));
+    if (ult) bpbEl.value = ult.bricksPorBandeja;
+  }
+  const bpcEl = document.getElementById('pr-bpc'), cppbEl = document.getElementById('pr-cppb');
+  const ultEnc = masReciente(producciones.filter(l => l.tipo==='brik' && l.fase==='encajado' && coincide(l) && parseFloat(l.bricksPorCaja)>0));
+  if (ultEnc) {
+    if (bpcEl && !bpcEl.value) bpcEl.value = ultEnc.bricksPorCaja;
+    if (cppbEl && !cppbEl.value) cppbEl.value = ultEnc.cajasPorPalet;
+  }
+  prBrikCalc();
+}
+window.prRecordarPorArticulo = prRecordarPorArticulo;
 // Bricks en cada fase (art = artículo en mayúsculas, o null para todos)
 function _bricksFase(art) {
   const r = { llenado:0, etiquetado:0, encajado:0, n:0 };

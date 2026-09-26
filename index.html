@@ -2706,21 +2706,18 @@ input[type=password],input[type=email]{text-transform:none}
         <div class="fg"><label>🟧 Palets de bandejas</label><input id="fb-pal" type="number" min="0" inputmode="numeric" oninput="fbPalChange()" style="font-size:20px;font-weight:800;text-align:center"></div>
         <div class="fg"><label>🧃 Bricks</label><input id="fb-total" type="number" min="1" inputmode="numeric" oninput="fbBricksChange()" style="font-size:20px;font-weight:800;text-align:center"></div>
       </div>
-      <div class="fgrid full" id="fb-grp-solobricks" style="display:none">
-        <div class="fg"><label>🟧 Palets a encajar</label><input id="fb-palenc" type="number" min="1" inputmode="numeric" oninput="fbCalc()" style="font-size:20px;font-weight:800;text-align:center"></div>
-      </div>
-      <button type="button" onclick="fbTodo()" style="width:100%;margin:2px 0 8px;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-size:13px;font-weight:700;cursor:pointer">Pasa todo el lote</button>
-      <div style="font-size:11.5px;color:var(--t2);margin:0 2px 6px">Lo que no pases se queda donde está.</div>
       <div id="fb-enc" style="display:none">
         <div class="fsec">Datos del encajado</div>
         <div class="fgrid">
           <div class="fg"><label>🧃 Bricks por caja</label><input id="fb-bpc" type="number" min="1" inputmode="numeric" placeholder="0" oninput="fbCalc()"></div>
           <div class="fg"><label>📦 Cajas por palet</label><input id="fb-cpp" type="number" min="1" inputmode="numeric" placeholder="0" oninput="fbCalc()"></div>
         </div>
-        <div class="fgrid full">
-          <div class="fg"><label>📦 Cajas obtenidas (se calcula solo; cámbialo si has contado otras)</label><input id="fb-cajas" type="number" min="0" inputmode="numeric" placeholder="0" oninput="fbCajasEdit()"></div>
-        </div>
       </div>
+      <div class="fgrid full" id="fb-grp-solobricks" style="display:none">
+        <div class="fg"><label>🧃 Bricks a encajar</label><input id="fb-bricksenc" type="number" min="1" inputmode="numeric" oninput="fbCalc()" style="font-size:20px;font-weight:800;text-align:center"></div>
+      </div>
+      <button type="button" onclick="fbTodo()" style="width:100%;margin:2px 0 8px;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-size:13px;font-weight:700;cursor:pointer">Pasa todo el lote</button>
+      <div style="font-size:11.5px;color:var(--t2);margin:0 2px 6px">Lo que no pases se queda donde está. El encajado reparte solo en palets completos + cajas sueltas.</div>
       <div id="fb-prev" style="background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:12px;font-size:13.5px;margin-top:10px;line-height:1.6"></div>
     </div>
     <div class="modal-footer">
@@ -5203,7 +5200,7 @@ function _brikInfoHtml(l) {
   const btns = l.fase==='encajado' ? '' : `<div style="display:flex;gap:8px;margin-top:10px">${l.fase==='llenado' ? B('etiquetado','🏷️ Etiquetar','var(--dhl-yellow)','var(--dhl-dark)') : ''}${B('encajado','📦 Encajar','var(--dhl-dark)','#fff')}</div>`;
   return `<div style="margin-top:6px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="background:${C[l.fase]||'#999'};color:#fff;padding:3px 10px;border-radius:999px;font-weight:800;font-size:11.5px">${F[l.fase]||'—'}</span><span style="font-size:16px;font-weight:800">🧃 ${_fmtN(parseFloat(l.totalBricks)||0)} bricks</span></div>${det?`<div style="color:var(--t2);margin-top:3px">${det}</div>`:''}${btns}</div>`;
 }
-let _faseLote = null, _faseDest = '', _fbManual = false;
+let _faseLote = null, _faseDest = '';
 const _FASE_TXT = { llenado:'Llenado', etiquetado:'Etiquetado', encajado:'Encajado (Tetra Pak)' };
 const _bricksPalBand = l => (parseFloat(l.bricksPorBandeja)||0)*(parseFloat(l.bandejasPorPalet)||0);
 // Reparte b bricks en palets de bandejas + bandejas sueltas + bricks de bandeja incompleta
@@ -5217,7 +5214,7 @@ const _txtDesg = d => `${d.pb} palets de bandejas` + (d.bs?` + ${d.bs} bandejas`
 function avanzarFaseLote(id, dest) {
   const l = producciones.find(x=>String(x.id)===String(id));
   if (!l || l.tipo!=='brik' || l.fase==='encajado') return;
-  _faseLote = l; _faseDest = dest || (l.fase==='llenado' ? 'etiquetado' : 'encajado'); _fbManual = false;
+  _faseLote = l; _faseDest = dest || (l.fase==='llenado' ? 'etiquetado' : 'encajado');
   const enc = _faseDest==='encajado';
   document.getElementById('fb-title').textContent = enc ? '📦 Encajar' : '🏷️ Etiquetar';
   document.getElementById('fb-sub').textContent = l.articulo + (l.numProd?' · '+l.numProd:'') + (l.lote?' · Lote '+l.lote:'');
@@ -5226,11 +5223,10 @@ function avanzarFaseLote(id, dest) {
                           .sort((a,b)=>(b.createdAt||0)-(a.createdAt||0))[0];
   document.getElementById('fb-bpc').value = ult ? ult.bricksPorCaja : '';
   document.getElementById('fb-cpp').value = ult ? (ult.cajasPorPalet||'') : '';
-  document.getElementById('fb-cajas').value = '';
   document.getElementById('fb-enc').style.display = enc ? '' : 'none';
   document.getElementById('fb-grp-pal').style.display = enc ? 'none' : '';
   document.getElementById('fb-grp-solobricks').style.display = enc ? '' : 'none';
-  document.getElementById('fb-palenc').value = '';
+  document.getElementById('fb-bricksenc').value = '';
   document.getElementById('fb-ok').textContent = enc ? '📦 Encajar' : '🏷️ Etiquetar';
   fbTodo();
   document.getElementById('mFaseBrik').classList.add('open');
@@ -5239,7 +5235,7 @@ function fbTodo() {
   const l = _faseLote; if (!l) return;
   document.getElementById('fb-pal').value = l.paletsBandejas || 0;
   document.getElementById('fb-total').value = l.totalBricks || '';
-  _fbManual = false; if (document.getElementById('fb-cajas')) document.getElementById('fb-cajas').value = '';
+  if (_faseDest==='encajado') document.getElementById('fb-bricksenc').value = l.totalBricks || '';
   fbCalc();
 }
 // Palets → bricks
@@ -5256,24 +5252,27 @@ function fbBricksChange() {
   document.getElementById('fb-pal').value = b>=T ? (l.paletsBandejas||0) : (bp>0 ? Math.floor(b/bp) : 0);
   fbCalc();
 }
-function fbCajasEdit() { _fbManual = document.getElementById('fb-cajas').value !== ''; fbCalc(); }
 function fbCalc() {
   const l = _faseLote; if (!l) return;
   const v = id => parseFloat(document.getElementById(id).value)||0;
   const enc = _faseDest==='encajado', T = parseFloat(l.totalBricks)||0;
-  let b = enc ? 0 : v('fb-total');
+  let b = enc ? v('fb-bricksenc') : v('fb-total');
   let html = '';
   if (enc) {
-    const palEnc = v('fb-palenc'), bpc = v('fb-bpc'), k = v('fb-cpp');
-    const cajasNec = palEnc*k, necesarios = cajasNec*bpc;
-    b = necesarios;
-    document.getElementById('fb-total').value = necesarios || '';
-    if (!(palEnc>0 && bpc>0 && k>0)) {
-      html += '<div style="color:var(--t2)">Indica palets a encajar, bricks por caja y cajas por palet.</div>';
-    } else if (necesarios > T) {
-      html += `<div style="color:#B02A37">⚠️ Faltan <b>${_fmtN(necesarios-T)}</b> bricks para encajar ${palEnc} palets (necesitas ${_fmtN(necesarios)}, hay ${_fmtN(T)})</div>`;
+    const bpc = v('fb-bpc'), k = v('fb-cpp');
+    if (!(bpc>0 && k>0)) {
+      html += '<div style="color:var(--t2)">Indica bricks por caja y cajas por palet.</div>';
+    } else if (b<=0) {
+      html += '<div style="color:var(--t2)">Indica cuántos bricks vas a encajar.</div>';
+    } else if (b>T) {
+      html += `<div style="color:#B02A37">⚠️ Solo hay ${_fmtN(T)} bricks en este lote</div>`;
     } else {
-      html += `<div>✅ <b>Pasa a stock:</b> ${_fmtN(cajasNec)} cajas = <b>${palEnc} palets</b> · usa ${_fmtN(necesarios)} bricks</div>`;
+      const e = _encajar(b, bpc, k);
+      if (e.cajasTot<=0) {
+        html += `<div style="color:#B02A37">⚠️ ${_fmtN(b)} bricks no llegan a completar ni una caja (necesitas ${_fmtN(bpc)} por caja)</div>`;
+      } else {
+        html += `<div>✅ <b>Pasa a stock:</b> ${_fmtN(e.cajasTot)} cajas = <b>${e.palets} palet${e.palets!==1?'s':''}</b>${e.cajas?' + <b>'+e.cajas+' cajas</b>':''}${e.sueltos?' · sobran '+_fmtN(e.sueltos)+' bricks (menos de 1 caja, se quedan en Etiquetado)':''}</div>`;
+      }
     }
   } else html += `<div>🏷️ <b>Se etiquetan:</b> ${_fmtN(b)} bricks</div>`;
   if (!enc) { if (b>0 && b<T) html += `<div style="margin-top:4px">🟡 <b>Se quedan en ${_FASE_TXT[l.fase]}:</b> ${_fmtN(T-b)} bricks<div style="color:var(--t2)">${_txtDesg(_desglose(T-b, l))}</div></div>`;
@@ -5288,11 +5287,14 @@ async function confirmarFaseBrik() {
   const dest = _faseDest, T = parseFloat(l.totalBricks)||0;
   let b, adv;
   if (dest==='encajado') {
-    const palEnc = v('fb-palenc'), bpc = v('fb-bpc'), k = v('fb-cpp');
-    if (!(palEnc>0 && bpc>0 && k>0)) { toast('⚠️ Indica palets a encajar, bricks por caja y cajas por palet'); return; }
-    b = palEnc*k*bpc;
-    if (b>T) { toast('⚠️ Faltan '+_fmtN(b-T)+' bricks para encajar '+palEnc+' palets'); return; }
-    adv = { ...l, fase:dest, totalBricks:b, bricksPorCaja:bpc, cajasPorPalet:k, palets:palEnc, cajas:0, bricksSueltos:0, paletsConsumidos:0, cajasConsumidos:0 };
+    const bpc = v('fb-bpc'), k = v('fb-cpp'), bricksEnc = v('fb-bricksenc');
+    if (!(bpc>0 && k>0)) { toast('⚠️ Indica bricks por caja y cajas por palet'); return; }
+    if (bricksEnc<=0) { toast('⚠️ Indica cuántos bricks vas a encajar'); return; }
+    if (bricksEnc>T) { toast('⚠️ Solo hay '+_fmtN(T)+' bricks en este lote'); return; }
+    const e = _encajar(bricksEnc, bpc, k);
+    if (!e || e.cajasTot<=0) { toast('⚠️ No llega ni a una caja con esos bricks'); return; }
+    b = e.cajasTot*bpc; // bricks realmente usados (se ignoran los sueltos de menos de 1 caja, se quedan en Etiquetado)
+    adv = { ...l, fase:dest, totalBricks:b, bricksPorCaja:bpc, cajasPorPalet:k, palets:e.palets, cajas:e.cajas, bricksSueltos:0, paletsConsumidos:0, cajasConsumidos:0 };
   } else {
     b = v('fb-total');
     if (b<=0) { toast('⚠️ Indica cuántos bricks pasan'); return; }
@@ -5314,7 +5316,7 @@ async function confirmarFaseBrik() {
   if (dest==='encajado') preguntarPedidosLote(adv);
 }
 window.avanzarFaseLote = avanzarFaseLote; window.fbCalc = fbCalc; window.fbPalChange = fbPalChange; window.fbBricksChange = fbBricksChange;
-window.fbTodo = fbTodo; window.fbCajasEdit = fbCajasEdit; window.cerrarFaseBrik = cerrarFaseBrik; window.confirmarFaseBrik = confirmarFaseBrik;
+window.fbTodo = fbTodo; window.cerrarFaseBrik = cerrarFaseBrik; window.confirmarFaseBrik = confirmarFaseBrik;
 
 function openProduccionModal(){
   ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});

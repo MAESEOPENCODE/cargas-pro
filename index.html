@@ -313,6 +313,8 @@ header::after{
 }
 .fab:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(245,166,35,0.55);}
 .fab:active{transform:scale(0.92)}
+.fab-mat{position:fixed;bottom:148px;left:20px;z-index:50;width:56px;height:56px;border-radius:18px;border:2px solid #F5A623;background:#2A2E38;font-size:26px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.fab-mat:active{transform:scale(0.92)}
 .fab-prod{position:fixed;bottom:80px;left:20px;z-index:50;width:56px;height:56px;border-radius:18px;border:2px solid #F5A623;background:#2A2E38;font-size:26px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transition:all .2s}
 .fab-prod:active{transform:scale(0.92)}
 
@@ -1217,7 +1219,7 @@ tr:hover td{background:rgba(245,166,35,0.06)}
 /* Hide main content when EP screen is active */
 body.ep-active header,body.ep-active .tabs-wrap,body.ep-active .stats-row,
 body.ep-active .search-row,body.ep-active .filter-panel,body.ep-active .scroll-content,
-body.ep-active .fab,body.ep-active .fab-prod{display:none !important}
+body.ep-active .fab,body.ep-active .fab-prod,body.ep-active .fab-mat{display:none !important}
 
 /* ════════════════════════════════════════════════════════════════════════
    ██████╗ ██████╗     ██████╗ ██████╗ ███████╗███╗   ███╗██╗██╗   ██╗███╗   ███╗
@@ -2270,6 +2272,7 @@ input[type=password],input[type=email]{text-transform:none}
 <!-- FAB -->
 <button class="fab" onclick="openPedidoModal(null)">＋</button>
 <button class="fab-prod" onclick="openProduccionModal()" title="Producción / Stock">🏭</button>
+<button class="fab-mat" onclick="abrirMaterialesDirecto()" title="Materiales">🧱</button>
 
 <!-- BOTTOM NAV -->
 <div class="bottom-nav">
@@ -2840,6 +2843,8 @@ const db  = firebase.firestore();
 const col = db.collection('pedidos');
 const colMov = db.collection('movimientos_palets');
 const colProd = db.collection('produccion');
+const colMat = db.collection('materiales');
+const colRecetas = db.collection('recetas');
 
 // ══ LOGIN ══
 (function(){
@@ -2875,12 +2880,23 @@ document.addEventListener('input', e => {
 
 let pedidos = [];
 let producciones = [];
+let materiales = [];
+let recetas = [];
 colProd.onSnapshot((snap) => {
   producciones = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
   render(); // por si hay avisos de stock visibles en el formulario abierto
 }, (err) => { console.error('Firestore producción:', err); });
+colMat.onSnapshot((snap) => {
+  materiales = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  materiales.sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+  if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
+}, (err) => { console.error('Firestore materiales:', err); });
+colRecetas.onSnapshot((snap) => {
+  recetas = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
+}, (err) => { console.error('Firestore recetas:', err); });
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
 // ── Nº automático de producción (P-AAAA-NNN) ──
@@ -2994,6 +3010,35 @@ async function fbSaveProduccion(l) {
   try { await colProd.doc(String(l.id)).set(l); setSyncStatus('ok'); }
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar producción'); }
 }
+async function fbSaveMaterial(m) {
+  setSyncStatus('saving');
+  try { await colMat.doc(String(m.id)).set(m); setSyncStatus('ok'); }
+  catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar material'); }
+}
+async function fbDeleteMaterial(id) {
+  setSyncStatus('saving');
+  try { await colMat.doc(String(id)).delete(); setSyncStatus('ok'); }
+  catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al eliminar material'); }
+}
+async function fbSaveReceta(r) {
+  setSyncStatus('saving');
+  try { await colRecetas.doc(String(r.id)).set(r); setSyncStatus('ok'); }
+  catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar receta'); }
+}
+// Descuenta materiales según la receta del artículo+formato, proporcional a las cajas nuevas producidas.
+// deltaCajas puede ser negativo (si se corrige un lote a la baja) para devolver material al stock.
+function _recetaKey(articulo, formato) { return (articulo||'').trim().toUpperCase()+'|'+(formato||'').trim().toUpperCase(); }
+function recetaPara(articulo, formato) { return recetas.find(r => _recetaKey(r.articulo,r.formato) === _recetaKey(articulo,formato)); }
+async function consumirMateriales(articulo, formato, deltaCajas) {
+  if (!deltaCajas) return;
+  const r = recetaPara(articulo, formato);
+  if (!r || !(r.items||[]).length) return;
+  for (const it of r.items) {
+    const m = materiales.find(x => String(x.id)===String(it.materialId)); if (!m) continue;
+    await fbSaveMaterial({ ...m, stock: (parseFloat(m.stock)||0) - deltaCajas*(parseFloat(it.cantidad)||0) });
+  }
+}
+function _cajasEq(l) { return (parseFloat(l?.palets)||0)*(parseFloat(l?.cajasPorPalet)||0) + (parseFloat(l?.cajas)||0); }
 // Revierte el consumo de stock de un historial de cargas (usado al reabrir un pedido)
 async function revertirConsumoStock(cargasHistorial) {
   for (const carga of (cargasHistorial||[])) {
@@ -5352,6 +5397,7 @@ async function confirmarFaseBrik() {
     await fbSaveProduccion({ ...l, totalBricks:T-b, paletsBandejas:dr.pb, bandejasSueltas:dr.bs, bandejasIncompletas:dr.bi, bricksIncompletos:dr.bri });
   }
   await fbSaveProduccion(adv);
+  if (dest==='encajado') await consumirMateriales(adv.articulo, adv.formato, _cajasEq(adv));
   cerrarFaseBrik();
   toast(dest==='encajado' ? '📦 Encajado · ya está en stock' : '🏷️ Etiquetado');
   renderProduccionList();
@@ -5369,6 +5415,11 @@ function openProduccionModal(){
   asignarNumerosProduccion().then(renderProduccionList);
   document.getElementById('mProduccion').classList.add('open');
 }
+function abrirMaterialesDirecto(){
+  openProduccionModal();
+  prIr('materiales');
+}
+window.abrirMaterialesDirecto = abrirMaterialesDirecto;
 function closeProduccionModal(){
   document.getElementById('mProduccion').classList.remove('open');
 }
@@ -5418,13 +5469,154 @@ async function guardarProduccion(){
     notas: document.getElementById('pr-notas').value.trim().toUpperCase(),
     createdAt: prev ? (prev.createdAt||Date.now()) : Date.now()
   };
+  const deltaCajasMat = _cajasEq(lote) - _cajasEq(prev);
   await fbSaveProduccion(lote);
+  if (deltaCajasMat) await consumirMateriales(lote.articulo, lote.formato, deltaCajasMat);
   ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   toast(prev ? '💾 Lote actualizado' : '🏭 Producción '+lote.numProd+' registrada'); _setModoEdicion(null);
   if(!prev && !(lote.tipo==='brik' && lote.fase!=='encajado')) preguntarPedidosLote(lote);
   _prArt = _keyArt(lote); prIr('detalle');
 }
 window.guardarProduccion = guardarProduccion;
+
+// ══════════════════════════════════════════════════════════════════
+// MATERIALES: envases, tapones, cartón, bobinas... con su stock y,
+// por artículo+formato, la receta (cuánto de cada material lleva
+// UNA CAJA) para descontarlo solo al fabricar.
+// ══════════════════════════════════════════════════════════════════
+let _matId = '';
+function _matUnidadTxt(u){ return {uds:'uds', kg:'kg', m:'m'}[u] || u || ''; }
+function _matCardHtml(m) {
+  const stock = parseFloat(m.stock)||0, min = parseFloat(m.stockMin)||0;
+  const bajo = min>0 && stock<=min, agotado = stock<=0;
+  const col = agotado ? '#DC3545' : (bajo ? '#F5A623' : '#22A559');
+  return `<div onclick="matAbrir('${m.id}')" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);border-left:6px solid ${col};border-radius:14px;padding:11px 12px;min-height:96px;display:flex;flex-direction:column">
+    <div style="font-weight:800;font-size:13px;line-height:1.2">${_esc(m.nombre||'')}</div>
+    <div style="margin-top:auto;padding-top:6px"><span style="font-size:28px;font-weight:900;line-height:1">${_fmtN(stock)}</span> <span style="font-size:12px;font-weight:700">${_matUnidadTxt(m.unidad)}</span></div>
+    ${min>0 ? `<div style="font-size:11px;color:var(--t2);margin-top:2px">Mínimo: ${_fmtN(min)} ${_matUnidadTxt(m.unidad)}</div>` : ''}
+  </div>`;
+}
+function _matListaHtml() {
+  const lista = materiales.length ? `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">${materiales.map(_matCardHtml).join('')}</div>`
+    : '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Todavía no hay materiales. Pulsa "＋ Nueva" para dar de alta el primero (botellas, tapones, cartón, bobinas...).</div>';
+  return lista + _matRecetasHtml();
+}
+function _matRecetasHtml() {
+  const filas = recetas.map(r => `<div onclick="abrirRecetaDirecta('${r.id}')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-top:8px">
+      <div><b style="font-size:13px">${_esc(r.articulo)}</b><div style="color:var(--t2);font-size:11.5px">${_esc(r.formato)} · ${(r.items||[]).length} material${(r.items||[]).length===1?'':'es'}</div></div>
+      <span style="font-size:16px">›</span>
+    </div>`).join('');
+  return `<div class="fsec" style="margin-top:16px">Recetas por artículo</div>
+    ${filas || '<div style="color:var(--t3);font-size:12.5px;padding:4px 2px">Aún no has definido ninguna receta.</div>'}
+    <button type="button" onclick="matNuevaReceta()" style="width:100%;margin-top:8px;padding:9px;border:1px dashed var(--border2);border-radius:10px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">＋ Nueva receta (aunque el artículo aún no se haya fabricado)</button>`;
+}
+function abrirRecetaDirecta(id) {
+  const r = recetas.find(x=>String(x.id)===String(id)); if (!r) return;
+  _recetaArticulo = r.articulo; _recetaFormato = r.formato; _prArt = '';
+  prIr('receta');
+}
+function matNuevaReceta() { _recetaArticulo=''; _recetaFormato=''; _prArt=''; prIr('receta-nueva'); }
+window.abrirRecetaDirecta = abrirRecetaDirecta; window.matNuevaReceta = matNuevaReceta;
+function matAbrir(id) { _matId = id; prIr('mat-detalle'); }
+function _matDetalleHtml() {
+  const m = materiales.find(x=>String(x.id)===String(_matId)); if (!m) return '';
+  const stock = parseFloat(m.stock)||0;
+  return `<div style="margin-bottom:12px">
+    <div style="font-size:18px;font-weight:900">${_esc(m.nombre||'')}</div>
+    <div style="background:var(--surface2);border-radius:12px;padding:8px 14px;display:inline-block;margin-top:8px"><span style="font-size:26px;font-weight:900">${_fmtN(stock)}</span> ${_matUnidadTxt(m.unidad)}</div>
+    ${m.stockMin ? `<div style="color:var(--t2);font-size:12px;margin-top:6px">Mínimo: ${_fmtN(m.stockMin)} ${_matUnidadTxt(m.unidad)}</div>` : ''}
+  </div>
+  <div class="fgrid full"><div class="fg"><label>➕ Registrar entrada (compra recibida)</label>
+    <div style="display:flex;gap:8px"><input id="mat-entrada" type="number" step="any" placeholder="Cantidad recibida" style="flex:1"><button onclick="matEntrada()" style="padding:0 18px;border:none;border-radius:10px;background:var(--dhl-yellow);color:var(--dhl-dark);font-weight:800;cursor:pointer">Sumar</button></div>
+  </div></div>
+  <div style="display:flex;gap:8px;margin-top:14px">
+    <button onclick="matEditar('${m.id}')" style="flex:1;padding:12px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">✏️ Editar</button>
+    <button onclick="matBorrar('${m.id}')" style="flex:1;padding:12px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:#DC3545;font-weight:800;cursor:pointer">🗑️ Eliminar</button>
+  </div>`;
+}
+async function matEntrada() {
+  const m = materiales.find(x=>String(x.id)===String(_matId)); if (!m) return;
+  const c = parseFloat(document.getElementById('mat-entrada').value);
+  if (!(c>0)) { toast('⚠️ Indica una cantidad'); return; }
+  await fbSaveMaterial({ ...m, stock: (parseFloat(m.stock)||0) + c });
+  toast('✅ Entrada registrada: +'+_fmtN(c)+' '+_matUnidadTxt(m.unidad));
+  renderProduccionList();
+}
+function matNuevo() { _matId = ''; prIr('mat-form'); }
+function matEditar(id) { _matId = id; prIr('mat-form'); }
+function _matFormHtml() {
+  const m = _matId ? materiales.find(x=>String(x.id)===String(_matId)) : null;
+  return `<div class="fsec">${m ? 'Editar material' : 'Nuevo material'}</div>
+  <div class="fgrid full"><div class="fg"><label>📦 Nombre</label><input id="mat-nombre" placeholder="Botella 1L, Tapón, Cartón caja 12ud, Bobina complejo 400ml..." value="${_esc(m?.nombre)}"></div></div>
+  <div class="fgrid">
+    <div class="fg"><label>📐 Unidad</label><select id="mat-unidad"><option value="uds" ${m?.unidad==='uds'?'selected':''}>Unidades</option><option value="kg" ${m?.unidad==='kg'?'selected':''}>Kg</option><option value="m" ${m?.unidad==='m'?'selected':''}>Metros</option></select></div>
+    <div class="fg"><label>📊 Stock ${m?'actual':'inicial'}</label><input id="mat-stock" type="number" step="any" placeholder="0" value="${m?_esc(m.stock):''}"></div>
+  </div>
+  <div class="fgrid full"><div class="fg"><label>⚠️ Stock mínimo (avisa por debajo)</label><input id="mat-stockmin" type="number" step="any" placeholder="0" value="${_esc(m?.stockMin)}"></div></div>
+  <button type="button" onclick="matGuardar()" style="width:100%;margin-top:10px;padding:12px;border:none;border-radius:12px;background:var(--dhl-yellow);color:var(--dhl-dark);font-weight:800;font-size:15px;cursor:pointer">💾 Guardar</button>`;
+}
+async function matGuardar() {
+  const nombre = document.getElementById('mat-nombre').value.trim().toUpperCase();
+  if (!nombre) { toast('⚠️ Indica el nombre del material'); return; }
+  const id = _matId || 'mat_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  await fbSaveMaterial({ id, nombre, unidad: document.getElementById('mat-unidad').value,
+    stock: parseFloat(document.getElementById('mat-stock').value)||0,
+    stockMin: parseFloat(document.getElementById('mat-stockmin').value)||0 });
+  toast(_matId ? '💾 Material actualizado' : '✅ Material creado');
+  _matId = id; prIr('mat-detalle');
+}
+function matBorrar(id) {
+  confirm2('🗑','¿Eliminar material?','Esta acción no se puede deshacer','Eliminar','',async()=>{
+    await fbDeleteMaterial(id);
+    toast('🗑 Material eliminado');
+    prIr('materiales');
+  });
+}
+window.matAbrir = matAbrir; window.matEntrada = matEntrada; window.matNuevo = matNuevo;
+window.matEditar = matEditar; window.matGuardar = matGuardar; window.matBorrar = matBorrar;
+
+// ── Receta de un artículo+formato (desde su ficha de producto en Stock) ──
+let _recetaArticulo = '', _recetaFormato = '';
+function abrirReceta() {
+  const g = _grupos().find(x=>x.key===_prArt);
+  _recetaArticulo = g?.articulo||''; _recetaFormato = g?.formato||'';
+  prIr('receta');
+}
+function _recetaFormHtml() {
+  const r = recetaPara(_recetaArticulo, _recetaFormato);
+  const items = (r?.items||[]).length ? r.items : [{materialId:'',cantidad:''}];
+  return `<div style="margin-bottom:4px"><div style="font-size:16px;font-weight:900">${_esc(_recetaArticulo)}</div><div style="color:var(--t2);font-size:12.5px">${_esc(_recetaFormato)} · cantidades por CADA CAJA producida</div></div>
+  <div id="receta-filas">${items.map(_recetaFilaHtml).join('')}</div>
+  <button type="button" onclick="_recetaAddFila()" style="width:100%;margin-top:8px;padding:9px;border:1px dashed var(--border2);border-radius:10px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">＋ Añadir material</button>
+  <button type="button" onclick="_recetaGuardar()" style="width:100%;margin-top:14px;padding:12px;border:none;border-radius:12px;background:var(--dhl-yellow);color:var(--dhl-dark);font-weight:800;font-size:15px;cursor:pointer">💾 Guardar receta</button>
+  ${!materiales.length ? '<div style="color:var(--t2);font-size:12px;margin-top:10px">Todavía no tienes materiales dados de alta — hazlo primero en la pestaña 🧱 Materiales.</div>' : ''}`;
+}
+function _recetaFilaHtml(it) {
+  return `<div class="fgrid">
+    <div class="fg"><label>Material</label><select onchange="_recetaCambio()">
+      <option value="">— Elegir —</option>${materiales.map(m=>`<option value="${m.id}" ${it.materialId===m.id?'selected':''}>${_esc(m.nombre)}</option>`).join('')}
+    </select></div>
+    <div class="fg"><label>Cantidad por caja</label><input type="number" step="any" placeholder="0" value="${_esc(it.cantidad)}" oninput="_recetaCambio()"></div>
+  </div>`;
+}
+function _recetaAddFila() {
+  document.getElementById('receta-filas').insertAdjacentHTML('beforeend', _recetaFilaHtml({materialId:'',cantidad:''}));
+}
+function _recetaCambio() {}
+async function _recetaGuardar() {
+  const articulo = (_prView==='receta-nueva' ? document.getElementById('rn-articulo').value : _recetaArticulo).trim().toUpperCase();
+  const formato = (_prView==='receta-nueva' ? document.getElementById('rn-formato').value : _recetaFormato).trim().toUpperCase();
+  if (!articulo) { toast('⚠️ Indica el artículo'); return; }
+  const items = [...document.querySelectorAll('#receta-filas .fgrid')].map(row => ({
+    materialId: row.querySelector('select').value,
+    cantidad: parseFloat(row.querySelector('input').value)||0,
+  })).filter(it => it.materialId && it.cantidad>0);
+  const prev = recetaPara(articulo, formato);
+  await fbSaveReceta({ id: prev?.id || ('receta_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)), articulo, formato, items });
+  toast('💾 Receta guardada');
+  prIr('materiales');
+}
+window.abrirReceta = abrirReceta; window._recetaAddFila = _recetaAddFila; window._recetaCambio = _recetaCambio; window._recetaGuardar = _recetaGuardar;
 
 // ══════════ PANTALLA DE STOCK: tarjetas por artículo + formato ══════════
 let _prView = 'stock', _prArt = '', _prBusca = '', _prFiltro = 'todos';
@@ -5498,7 +5690,7 @@ function _prDetalleHtml() {
   const g = _grupos().find(x=>x.key===_prArt); if (!g) return '';
   const lotes = [...g.lotes].sort((a,b)=>(a.numProd||'').localeCompare(b.numProd||'') || (a.caducidad||'9').localeCompare(b.caducidad||'9'));
   return `<div style="margin-bottom:12px"><div style="font-size:18px;font-weight:900">${_esc(g.articulo)}</div><div style="color:var(--t2);font-size:13px">${_esc(g.formato)}</div>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="background:var(--surface2);border-radius:12px;padding:8px 14px"><span style="font-size:26px;font-weight:900">${g.pal}</span> pal. <span style="color:var(--t2)">+ ${g.caj} cajas</span></div>${g.proc>0?`<div style="background:rgba(59,130,246,.15);color:#2563EB;border-radius:12px;padding:8px 14px;font-weight:800">🧃 ${_fmtN(g.proc)} bricks en proceso</div>`:''}</div></div>${lotes.map(_prLoteCard).join('')}`;
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="background:var(--surface2);border-radius:12px;padding:8px 14px"><span style="font-size:26px;font-weight:900">${g.pal}</span> pal. <span style="color:var(--t2)">+ ${g.caj} cajas</span></div>${g.proc>0?`<div style="background:rgba(59,130,246,.15);color:#2563EB;border-radius:12px;padding:8px 14px;font-weight:800">🧃 ${_fmtN(g.proc)} bricks en proceso</div>`:''}<button onclick="abrirReceta()" style="border:none;background:var(--surface2);border-radius:12px;padding:8px 14px;font-weight:800;font-size:13px;cursor:pointer;color:var(--t1)">📋 Receta de materiales</button></div></div>${lotes.map(_prLoteCard).join('')}`;
 }
 // ── Líneas de producto de un pedido (principal + extras), para cruzar con stock ──
 function _prLineasPedido(p) {
@@ -5577,7 +5769,7 @@ function _prProcesoHtml() {
     return `<div style="flex:1 0 220px;background:var(--surface2);border-radius:12px;padding:8px"><div style="background:${c};color:#fff;border-radius:8px;padding:7px 10px;font-weight:800;font-size:13px;display:flex;justify-content:space-between"><span>${t}</span><span>${_fmtN(tot)} bricks</span></div>${ls.length ? ls.map(mini).join('') : '<div style="font-size:12px;color:var(--t3);padding:12px 4px">Nada aquí</div>'}</div>`;
   }).join('') + '</div>';
 }
-const _PR_TABS = [['stock','📦 Stock'],['proceso','🧃 Proceso'],['pedidos','⚠️ Pedidos'],['lotes','📋 Lotes'],['caducar','⏳ Caducar']];
+const _PR_TABS = [['stock','📦 Stock'],['proceso','🧃 Proceso'],['pedidos','⚠️ Pedidos'],['lotes','📋 Lotes'],['caducar','⏳ Caducar'],['materiales','🧱 Materiales']];
 function _prNavHtml() {
   if (_PR_TABS.some(([v]) => v === _prView)) {
     const nFalta = _prPedidosFaltantes().length;
@@ -5587,7 +5779,12 @@ function _prNavHtml() {
     };
     return `<div style="display:flex;gap:6px;margin-top:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px">${_PR_TABS.map(([v,t])=>T(v,t)).join('')}</div>`;
   }
-  const back = (_prView==='form' && _prArt) ? 'detalle' : 'stock';
+  const back = _prView==='form' ? (_prArt ? 'detalle' : 'materiales')
+    : _prView==='mat-form' ? (_matId ? 'mat-detalle' : 'materiales')
+    : _prView==='receta' ? (_prArt ? 'detalle' : 'materiales')
+    : _prView==='receta-nueva' ? 'materiales'
+    : _prView==='mat-detalle' ? 'materiales'
+    : 'stock';
   return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><button onclick="prIr('${back}')" style="border:none;background:var(--surface2);border-radius:10px;padding:10px 14px;font-weight:800;font-size:13.5px;cursor:pointer">← Volver</button><b style="font-size:14px">${_prView==='form' ? (editLoteId?'Editar lote':'Nueva producción') : ''}</b></div>`;
 }
 function renderProduccionList() {
@@ -5604,12 +5801,28 @@ function renderProduccionList() {
   else if (_prView==='lotes') cont.innerHTML = _prLotesHtml();
   else if (_prView==='caducar') cont.innerHTML = _prCaducarHtml();
   else if (_prView==='detalle') cont.innerHTML = _prDetalleHtml();
+  else if (_prView==='materiales') cont.innerHTML = _matListaHtml();
+  else if (_prView==='mat-detalle') cont.innerHTML = _matDetalleHtml();
+  else if (_prView==='mat-form') cont.innerHTML = _matFormHtml();
+  else if (_prView==='receta') cont.innerHTML = _recetaFormHtml();
+  else if (_prView==='receta-nueva') cont.innerHTML = _recetaNuevaHtml();
+}
+function _recetaNuevaHtml() {
+  return `<div class="fsec">Nueva receta</div>
+  <div class="fgrid full"><div class="fg"><label>📦 Artículo</label><input id="rn-articulo" placeholder="Gazpacho, Salsa brava..." list="dl-productos" oninput="_recetaCambio()"></div></div>
+  <div class="fgrid full"><div class="fg"><label>🍶 Formato</label><input id="rn-formato" placeholder="Botella 1 lt, Brick 500..." list="dl-formatos" oninput="_recetaCambio()"></div></div>
+  <div class="fsec" style="margin-top:14px">Materiales por caja</div>
+  <div id="receta-filas">${_recetaFilaHtml({materialId:'',cantidad:''})}</div>
+  <button type="button" onclick="_recetaAddFila()" style="width:100%;margin-top:8px;padding:9px;border:1px dashed var(--border2);border-radius:10px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">＋ Añadir material</button>
+  <button type="button" onclick="_recetaGuardar()" style="width:100%;margin-top:14px;padding:12px;border:none;border-radius:12px;background:var(--dhl-yellow);color:var(--dhl-dark);font-weight:800;font-size:15px;cursor:pointer">💾 Guardar receta</button>
+  ${!materiales.length ? '<div style="color:var(--t2);font-size:12px;margin-top:10px">Todavía no tienes materiales dados de alta — hazlo primero en la pestaña 🧱 Materiales.</div>' : ''}`;
 }
 function prIr(v) { _prView = v; if (_PR_TABS.some(([x])=>x===v)) _prArt = ''; renderProduccionList(); const sc = document.querySelector('#mProduccion .modal-scroll'); if (sc) sc.scrollTop = 0; }
 function prAbrirArt(k) { _prArt = decodeURIComponent(k); prIr('detalle'); }
 function prFiltro(f) { _prFiltro = f; renderProduccionList(); }
 function prBuscar(v) { _prBusca = v; const g = document.getElementById('pr-grid'); if (g) g.innerHTML = _prGridHtml(); }
 function prNuevo() {
+  if (_prView==='materiales' || _prView==='mat-detalle') { matNuevo(); return; }
   ['pr-articulo','pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   document.getElementById('pr-fecha').value = new Date().toISOString().slice(0,10);
   _setModoEdicion(null);

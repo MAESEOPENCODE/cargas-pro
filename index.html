@@ -5732,6 +5732,25 @@ function _matMovsHtml() {
 function movBuscar(v) { _movBusca = v; const c = document.getElementById('pr-content'); if (c) c.innerHTML = _matMovsHtml(); }
 window.matVerMovs = matVerMovs; window.movBuscar = movBuscar;
 
+// Vuelve a aplicar la receta de materiales sobre un lote ya existente, como si acabara de entrar en stock.
+// Útil cuando el lote se creó antes de tener la receta (o antes de que se actualizara) y no se descontó nada.
+function recalcularConsumoLote(id) {
+  const l = producciones.find(x=>String(x.id)===String(id)); if (!l) return;
+  const cajasEq = _cajasEq(l);
+  if (cajasEq<=0) { toast('⚠️ Este lote no tiene cajas en stock que descontar'); return; }
+  const r = recetaPara(l.articulo, l.formato);
+  if (!r || !(r.items||[]).length) { toast('⚠️ Este artículo y formato no tienen receta de materiales'); return; }
+  const detalle = r.items.map(it => {
+    const m = materiales.find(x=>String(x.id)===String(it.materialId));
+    return m ? `${m.nombre}: -${_fmtN(cajasEq*(parseFloat(it.cantidad)||0))} ${_matUnidadTxt(m.unidad)}` : '';
+  }).filter(Boolean).join('<br>');
+  confirm2('🔁','¿Recalcular consumo de este lote?', `Se descontará de nuevo, como si el lote entrara ahora en stock:<br>${detalle}`, 'Descontar', '', async()=>{
+    await consumirMateriales(l.articulo, l.formato, cajasEq);
+    toast('✅ Consumo aplicado');
+  });
+}
+window.recalcularConsumoLote = recalcularConsumoLote;
+
 window.matAbrir = matAbrir; window.matEntrada = matEntrada; window.matNuevo = matNuevo;
 window.matEditar = matEditar; window.matGuardar = matGuardar; window.matBorrar = matBorrar;
 
@@ -5838,7 +5857,7 @@ function _prLoteCard(l, opts) {
   const info = [l.marca, l.lote?'Lote '+l.lote:'', l.caducidad?'Cad. '+_fdate(l.caducidad):'', l.cajasPorPalet?l.cajasPorPalet+' cajas/palet':'', (l.tipo==='normal' && l.botellasPorCaja)?l.botellasPorCaja+' botellas/caja · '+_fmtN(l.totalBotellas||0)+' botellas':''].filter(Boolean).join(' · ');
   return `<div style="background:${agot?'var(--surface2)':'var(--surface)'};opacity:${agot?0.6:1};border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><b style="font-size:14px">${l.numProd||'Sin nº'}</b>${opts.badge||''}</span>
-      <span style="display:flex;gap:6px"><button class="tbl-btn" onclick="editarLoteProduccion('${l.id}')" title="Editar lote" style="font-size:14px;padding:6px 10px">✏️</button><button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:14px;padding:6px 10px">🗑️</button></span></div>
+      <span style="display:flex;gap:6px">${_cajasEq(l)>0 ? `<button class="tbl-btn" onclick="recalcularConsumoLote('${l.id}')" title="Recalcular consumo de materiales" style="font-size:14px;padding:6px 10px">🔁</button>` : ''}<button class="tbl-btn" onclick="editarLoteProduccion('${l.id}')" title="Editar lote" style="font-size:14px;padding:6px 10px">✏️</button><button class="tbl-btn tbl-del" onclick="eliminarLoteProduccion('${l.id}')" title="Eliminar lote" style="font-size:14px;padding:6px 10px">🗑️</button></span></div>
     ${opts.art ? `<div style="font-weight:700;font-size:12.5px;margin-top:2px">${_esc((l.articulo||'').toUpperCase())}${l.formato?' · '+_esc((l.formato||'').toUpperCase()):''}</div>` : ''}
     ${info?`<div style="color:var(--t2);margin-top:3px;font-size:12px">${info}</div>`:''}
     ${_paraHtml(l)}

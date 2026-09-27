@@ -2857,6 +2857,7 @@ const colProd = db.collection('produccion');
 const colMat = db.collection('materiales');
 const colRecetas = db.collection('recetas');
 const colMovMat = db.collection('movimientos_materiales');
+const colMovProd = db.collection('movimientos_produccion');
 
 // ══ LOGIN ══
 (function(){
@@ -2895,6 +2896,7 @@ let producciones = [];
 let materiales = [];
 let recetas = [];
 let movimientosMat = [];
+let movimientosProd = [];
 colProd.onSnapshot((snap) => {
   producciones = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
@@ -2915,6 +2917,11 @@ colMovMat.onSnapshot((snap) => {
   movimientosMat.sort((a,b) => (b.ts||0)-(a.ts||0));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore movimientos materiales:', err); });
+colMovProd.onSnapshot((snap) => {
+  movimientosProd = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  movimientosProd.sort((a,b) => (b.ts||0)-(a.ts||0));
+  if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
+}, (err) => { console.error('Firestore movimientos producción:', err); });
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
 // ── Nº automático de producción (P-AAAA-NNN) ──
@@ -3056,20 +3063,37 @@ async function consumirMateriales(articulo, formato, deltaCajas) {
     const cantidad = -deltaCajas*(parseFloat(it.cantidad)||0);
     const nuevo = (parseFloat(m.stock)||0) + cantidad;
     await fbSaveMaterial({ ...m, stock: nuevo });
-    await registrarMovMaterial(m, cantidad, nuevo, (deltaCajas>0?'Consumo':'Devolución')+' · '+articulo+(formato?' · '+formato:''));
+    await registrarMovMaterial(m, cantidad, nuevo, articulo+(formato?' · '+formato:''), deltaCajas>0?'consumo':'devolucion');
   }
 }
 // Deja constancia de cada entrada/consumo/ajuste de un material, para el informe de movimientos.
-async function registrarMovMaterial(material, cantidad, stockResultante, motivo) {
+async function registrarMovMaterial(material, cantidad, stockResultante, motivo, tipo) {
   const id = 'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
   await fbSaveMovMaterial({ id, materialId: material.id, materialNombre: material.nombre, unidad: material.unidad,
-    cantidad, stockResultante, motivo, ts: Date.now(), fecha: new Date().toISOString().slice(0,10) });
+    cantidad, stockResultante, motivo, tipo: tipo || (cantidad>=0?'entrada':'ajuste'), ts: Date.now(), fecha: new Date().toISOString().slice(0,10) });
 }
 async function fbSaveMovMaterial(mv) {
   try { await colMovMat.doc(String(mv.id)).set(mv); }
   catch(e) { console.error(e); }
 }
+const _MOVP_TIPO_TXT = { creado:'Lote creado', editado:'Lote editado', etiquetado:'Etiquetado', encajado:'Encajado', eliminado:'Lote eliminado' };
+// Deja constancia de cada alta/edición/cambio de fase/baja de un lote, para el histórico de producción.
+async function registrarMovProduccion(lote, tipo, detalle) {
+  const id = 'movp_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  try { await colMovProd.doc(id).set({ id, loteId: lote.id, numProd: lote.numProd||'', articulo: lote.articulo||'', formato: lote.formato||'',
+    tipo, detalle: detalle||'', ts: Date.now(), fecha: new Date().toISOString().slice(0,10) }); }
+  catch(e) { console.error(e); }
+}
 function _cajasEq(l) { return (parseFloat(l?.palets)||0)*(parseFloat(l?.cajasPorPalet)||0) + (parseFloat(l?.cajas)||0); }
+// Resume un lote en una línea de texto, para el histórico de movimientos de producción
+function _descLote(l) {
+  if (_esFases(l) && l.fase!=='encajado') {
+    const u = l.tipo==='botella'?'botellas':'bricks';
+    return `${_FASE_TXT?_FASE_TXT[l.fase]:l.fase} · ${_fmtN(parseFloat(l[_campoTotal(l.tipo)])||0)} ${u}`;
+  }
+  const pal = parseFloat(l.palets)||0, caj = parseFloat(l.cajas)||0;
+  return `${pal} palet${pal===1?'':'s'}${caj?' + '+caj+' cajas':''}${l.cajasPorPalet?' ('+l.cajasPorPalet+' cajas/palet)':''}`;
+}
 // Revierte el consumo de stock de un historial de cargas (usado al reabrir un pedido)
 async function revertirConsumoStock(cargasHistorial) {
   for (const carga of (cargasHistorial||[])) {
@@ -5466,6 +5490,7 @@ async function confirmarFaseBrik() {
   }
   await fbSaveProduccion(adv);
   if (dest==='encajado') await consumirMateriales(adv.articulo, adv.formato, _cajasEq(adv));
+  await registrarMovProduccion(adv, dest, _descLote(adv));
   cerrarFaseBrik();
   toast(dest==='encajado' ? '📦 Encajado · ya está en stock' : '🏷️ Etiquetado');
   renderProduccionList();
@@ -5553,6 +5578,7 @@ async function guardarProduccion(){
   const deltaCajasMat = _cajasEq(lote) - _cajasEq(prev);
   await fbSaveProduccion(lote);
   if (deltaCajasMat) await consumirMateriales(lote.articulo, lote.formato, deltaCajasMat);
+  await registrarMovProduccion(lote, prev?'editado':'creado', _descLote(lote));
   ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpu','pr-totbot','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-totbotellas','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
   toast(prev ? '💾 Lote actualizado' : '🏭 Producción '+lote.numProd+' registrada'); _setModoEdicion(null);
   if(!prev && !(_esFases(lote) && lote.fase!=='encajado')) preguntarPedidosLote(lote);
@@ -5660,7 +5686,7 @@ async function matEntrada() {
   const notas = document.getElementById('mat-entrada-nota')?.value.trim();
   const nuevo = (parseFloat(m.stock)||0) + c;
   await fbSaveMaterial({ ...m, stock: nuevo });
-  await registrarMovMaterial(m, c, nuevo, notas || 'Entrada manual');
+  await registrarMovMaterial(m, c, nuevo, notas || 'Entrada manual', 'entrada');
   toast('✅ Entrada registrada: +'+_fmtN(c)+' '+_matUnidadTxt(m.unidad));
   document.getElementById('mat-entrada').value = '';
   if (document.getElementById('mat-entrada-nota')) document.getElementById('mat-entrada-nota').value = '';
@@ -5689,7 +5715,7 @@ async function matGuardar() {
     stock: nuevoStock, stockMin: parseFloat(document.getElementById('mat-stockmin').value)||0 };
   await fbSaveMaterial(material);
   const difStock = nuevoStock - (parseFloat(prev?.stock)||0);
-  if (prev && difStock) await registrarMovMaterial(material, difStock, nuevoStock, 'Ajuste manual (edición)');
+  if (prev && difStock) await registrarMovMaterial(material, difStock, nuevoStock, 'Ajuste manual (edición)', 'ajuste');
   toast(_matId ? '💾 Material actualizado' : '✅ Material creado');
   _matId = id; prIr('mat-detalle');
 }
@@ -5701,7 +5727,7 @@ function matBorrar(id) {
   });
 }
 // ── Informe de movimientos de materiales (entradas, consumos, ajustes) ──
-let _movMaterialId = '', _movBusca = '';
+let _movMaterialId = '', _movBusca = '', _movTipo = 'todos', _movDesde = '', _movHasta = '';
 function _movFilaHtml(v) {
   const pos = (parseFloat(v.cantidad)||0) >= 0;
   const icono = pos ? '➕' : '➖';
@@ -5717,20 +5743,92 @@ function _movFilaHtml(v) {
     </div>
   </div>`;
 }
-function matVerMovs(materialId) { _movMaterialId = materialId||''; _movBusca=''; prIr('mat-movs'); }
-function _matMovsHtml() {
-  const q = _normTxt(_movBusca);
-  let lista = movimientosMat;
-  if (_movMaterialId) lista = lista.filter(v=>String(v.materialId)===String(_movMaterialId));
-  if (q) lista = lista.filter(v=>_normTxt(v.materialNombre+' '+v.motivo).includes(q));
-  const m = _movMaterialId ? materiales.find(x=>String(x.id)===String(_movMaterialId)) : null;
-  const cabecera = m ? `<div style="font-size:16px;font-weight:900;margin-bottom:2px">${_esc(m.nombre)}</div><button onclick="matVerMovs('')" style="border:none;background:transparent;color:var(--t2);font-size:12px;text-decoration:underline;cursor:pointer;padding:0;margin-bottom:8px">Ver movimientos de todos los materiales</button>`
-    : `<input id="mov-buscar" type="search" placeholder="🔎 Buscar por material o motivo..." value="${_esc(_movBusca)}" oninput="movBuscar(this.value)" style="width:100%;padding:11px;font-size:14px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);margin-bottom:10px">`;
-  const filas = lista.slice(0,150).map(_movFilaHtml).join('');
-  return cabecera + (filas || '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Sin movimientos todavía.</div>');
+const _MOV_TIPO_TXT = { entrada:'Entrada', consumo:'Consumo', devolucion:'Devolución', ajuste:'Ajuste' };
+function matVerMovs(materialId) {
+  _movMaterialId = materialId||''; _movTipo='todos'; _movDesde=''; _movHasta=''; _movBusca='';
+  prIr('mat-movs');
 }
-function movBuscar(v) { _movBusca = v; const c = document.getElementById('pr-content'); if (c) c.innerHTML = _matMovsHtml(); }
-window.matVerMovs = matVerMovs; window.movBuscar = movBuscar;
+function _movFiltrados() {
+  const q = _normTxt(_movBusca);
+  return movimientosMat.filter(v =>
+    (!_movMaterialId || String(v.materialId)===String(_movMaterialId)) &&
+    (_movTipo==='todos' || v.tipo===_movTipo) &&
+    (!_movDesde || v.fecha>=_movDesde) && (!_movHasta || v.fecha<=_movHasta) &&
+    (!q || _normTxt(v.materialNombre+' '+v.motivo).includes(q)));
+}
+function _movResumenHtml(lista) {
+  const entra = lista.filter(v=>v.cantidad>0).reduce((a,v)=>a+v.cantidad,0);
+  const sale = lista.filter(v=>v.cantidad<0).reduce((a,v)=>a-v.cantidad,0);
+  return `<div style="display:flex;gap:8px;margin:10px 0"><div style="flex:1;background:var(--surface2);border-radius:10px;padding:8px 10px"><div style="font-size:10.5px;color:var(--t2)">Entradas</div><div style="font-weight:800;color:#22A559">+${_fmtN(entra)}</div></div><div style="flex:1;background:var(--surface2);border-radius:10px;padding:8px 10px"><div style="font-size:10.5px;color:var(--t2)">Salidas</div><div style="font-weight:800;color:#DC3545">-${_fmtN(sale)}</div></div><div style="flex:1;background:var(--surface2);border-radius:10px;padding:8px 10px"><div style="font-size:10.5px;color:var(--t2)">Movimientos</div><div style="font-weight:800">${lista.length}</div></div></div>`;
+}
+function _matMovsHtml() {
+  const lista = _movFiltrados();
+  const opsMat = `<option value="">Todos los materiales</option>` + materiales.map(m=>`<option value="${m.id}" ${_movMaterialId===m.id?'selected':''}>${_esc(m.nombre)}</option>`).join('');
+  const opsTipo = `<option value="todos">Todos los movimientos</option>` + Object.entries(_MOV_TIPO_TXT).map(([k,t])=>`<option value="${k}" ${_movTipo===k?'selected':''}>${t}</option>`).join('');
+  const filtros = `<div class="fsec">Filtrar movimientos</div>
+    <div class="fgrid full"><div class="fg"><label>Material</label><select id="mov-f-mat" onchange="movFiltroCambia()">${opsMat}</select></div></div>
+    <div class="fgrid"><div class="fg"><label>Tipo</label><select id="mov-f-tipo" onchange="movFiltroCambia()">${opsTipo}</select></div>
+      <div class="fg"><label>Buscar en motivo</label><input id="mov-buscar" type="search" placeholder="Artículo, albarán..." value="${_esc(_movBusca)}" oninput="movFiltroCambia()"></div></div>
+    <div class="fgrid"><div class="fg"><label>Desde</label><input id="mov-f-desde" type="date" value="${_esc(_movDesde)}" onchange="movFiltroCambia()"></div>
+      <div class="fg"><label>Hasta</label><input id="mov-f-hasta" type="date" value="${_esc(_movHasta)}" onchange="movFiltroCambia()"></div></div>`;
+  const acciones = `<div style="display:flex;gap:8px;margin:12px 0 4px"><button onclick="imprimirMovsMateriales()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">🖨️ Imprimir</button><button onclick="compartirMovsMateriales()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">📤 Compartir</button></div>`;
+  const cuerpo = lista.length ? _movResumenHtml(lista) + lista.slice(0,200).map(_movFilaHtml).join('') : '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Sin movimientos con estos filtros.</div>';
+  return filtros + acciones + `<div id="mov-lista">${cuerpo}</div>`;
+}
+function movFiltroCambia() {
+  _movMaterialId = document.getElementById('mov-f-mat').value;
+  _movTipo = document.getElementById('mov-f-tipo').value;
+  _movDesde = document.getElementById('mov-f-desde').value;
+  _movHasta = document.getElementById('mov-f-hasta').value;
+  _movBusca = document.getElementById('mov-buscar').value;
+  const c = document.getElementById('mov-lista'); if (c) c.innerHTML = _movFiltrados().length
+    ? _movResumenHtml(_movFiltrados()) + _movFiltrados().slice(0,200).map(_movFilaHtml).join('')
+    : '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Sin movimientos con estos filtros.</div>';
+}
+function _movTitulo() {
+  const m = _movMaterialId ? materiales.find(x=>String(x.id)===String(_movMaterialId)) : null;
+  return 'Movimientos de materiales' + (m?' · '+m.nombre:'') + (_movTipo!=='todos'?' · '+_MOV_TIPO_TXT[_movTipo]:'');
+}
+function imprimirMovsMateriales() {
+  const lista = _movFiltrados();
+  const fecha = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const filas = lista.map(v => `<tr><td>${_fdate(v.fecha)}</td><td>${_esc(v.materialNombre||'')}</td><td>${_MOV_TIPO_TXT[v.tipo]||v.tipo||''}</td><td style="text-align:right;color:${v.cantidad>=0?'#22A559':'#DC3545'}">${v.cantidad>=0?'+':''}${_fmtN(v.cantidad)} ${_matUnidadTxt(v.unidad)}</td><td style="text-align:right">${_fmtN(v.stockResultante)}</td><td>${_esc(v.motivo||'')}</td></tr>`).join('');
+  const html = `<html><head><meta charset="utf-8"><title>${_movTitulo()}</title><style>
+    body{font-family:Arial,sans-serif;padding:20px;color:#222}
+    h1{font-size:18px;margin:0 0 2px}
+    .sub{color:#666;font-size:12px;margin-bottom:14px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left}
+    th{background:#f4f4f4}
+  </style></head><body>
+    <h1>${_movTitulo()}</h1>
+    <div class="sub">${fecha} · SAT GUADEX · Palma del Río · ${lista.length} movimiento${lista.length===1?'':'s'}</div>
+    <table><thead><tr><th>Fecha</th><th>Material</th><th>Tipo</th><th style="text-align:right">Cantidad</th><th style="text-align:right">Stock resultante</th><th>Motivo</th></tr></thead><tbody>${filas}</tbody></table>
+  </body></html>`;
+  const win = window.open('','_blank','width=960,height=700');
+  win.document.write(html + `<script>window.onload=()=>{window.print();}<\/script>`);
+  win.document.close();
+}
+async function compartirMovsMateriales() {
+  const lista = _movFiltrados();
+  const fecha = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const lines = [`🧱 *${_movTitulo()}*`, `📅 ${fecha} · ${lista.length} movimiento${lista.length===1?'':'s'}`, ''];
+  lista.slice(0,300).forEach(v => {
+    lines.push(`${v.cantidad>=0?'➕':'➖'} *${v.materialNombre}*: ${v.cantidad>=0?'+':''}${_fmtN(v.cantidad)} ${_matUnidadTxt(v.unidad)} (${_MOV_TIPO_TXT[v.tipo]||v.tipo})`);
+    lines.push(`   ${_fdate(v.fecha)} · ${v.motivo||''} · stock: ${_fmtN(v.stockResultante)}`);
+  });
+  lines.push('——————————————', 'SAT GUADEX · Palma del Río');
+  const texto = lines.join('\n');
+  if (navigator.share) {
+    try { await navigator.share({ title: _movTitulo(), text: texto }); toast('📱 Compartido'); }
+    catch(e) { if (e.name!=='AbortError') { await navigator.clipboard.writeText(texto); toast('📋 Copiado al portapapeles'); } }
+  } else {
+    try { await navigator.clipboard.writeText(texto); toast('📋 Copiado al portapapeles'); }
+    catch(e) { toast('❌ No se pudo compartir'); }
+  }
+}
+window.matVerMovs = matVerMovs; window.movFiltroCambia = movFiltroCambia;
+window.imprimirMovsMateriales = imprimirMovsMateriales; window.compartirMovsMateriales = compartirMovsMateriales;
 
 // Vuelve a aplicar la receta de materiales sobre un lote ya existente, como si acabara de entrar en stock.
 // Útil cuando el lote se creó antes de tener la receta (o antes de que se actualizara) y no se descontó nada.
@@ -5914,11 +6012,89 @@ function _prLotesListHtml() {
   return `<div style="font-size:11.5px;color:var(--t3);margin-bottom:6px">${lotes.length} lote${lotes.length!==1?'s':''}</div>` + lotes.map(l => _prLoteCard(l, {art:true})).join('');
 }
 function _prLotesHtml() {
-  return `<input id="pr-lotes-buscar" type="search" placeholder="🔎 Buscar artículo, lote, nº producción..." value="${_esc(_prLotesBusca)}" oninput="prLotesBuscar(this.value)" style="width:100%;padding:12px;font-size:15px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);margin-bottom:10px">
+  return `<button type="button" onclick="verHistoricoProduccion()" style="width:100%;margin-bottom:10px;padding:10px;border:1px dashed var(--border2);border-radius:12px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">📋 Ver histórico de movimientos (altas, fases, bajas)</button>
+    <input id="pr-lotes-buscar" type="search" placeholder="🔎 Buscar artículo, lote, nº producción..." value="${_esc(_prLotesBusca)}" oninput="prLotesBuscar(this.value)" style="width:100%;padding:12px;font-size:15px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);margin-bottom:10px">
     <div id="pr-lotes-list">${_prLotesListHtml()}</div>`;
 }
 function prLotesBuscar(v) { _prLotesBusca = v; const el = document.getElementById('pr-lotes-list'); if (el) el.innerHTML = _prLotesListHtml(); }
 window.prLotesBuscar = prLotesBuscar;
+
+// ── Histórico de movimientos de producción (creado, editado, etiquetado, encajado, eliminado) ──
+let _movpArt = '', _movpTipo = 'todos', _movpDesde = '', _movpHasta = '', _movpBusca = '';
+function verHistoricoProduccion() { _movpArt=''; _movpTipo='todos'; _movpDesde=''; _movpHasta=''; _movpBusca=''; prIr('prod-movs'); }
+function _movpFiltrados() {
+  const q = _normTxt(_movpBusca);
+  return movimientosProd.filter(v =>
+    (!_movpArt || _normTxt(v.articulo+'|'+v.formato)===_movpArt) &&
+    (_movpTipo==='todos' || v.tipo===_movpTipo) &&
+    (!_movpDesde || v.fecha>=_movpDesde) && (!_movpHasta || v.fecha<=_movpHasta) &&
+    (!q || _normTxt(v.articulo+' '+v.formato+' '+v.detalle+' '+v.numProd).includes(q)));
+}
+function _movpFilaHtml(v) {
+  const col = {creado:'#22A559', editado:'#3B82F6', etiquetado:'#F5A623', encajado:'#22A559', eliminado:'#DC3545'}[v.tipo] || '#999';
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-top:6px">
+    <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:12.5px">${_esc(v.articulo)}</b><span style="background:${col};color:#fff;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:800">${_MOVP_TIPO_TXT[v.tipo]||v.tipo}</span></div>
+    <div style="color:var(--t2);font-size:11px;margin-top:2px">${_esc(v.formato)}${v.numProd?' · '+_esc(v.numProd):''} · ${_fdate(v.fecha)}</div>
+    <div style="font-size:12px;margin-top:3px">${_esc(v.detalle||'')}</div>
+  </div>`;
+}
+function _prodMovsHtml() {
+  const arts = [...new Map(movimientosProd.map(v=>[_normTxt(v.articulo+'|'+v.formato), v.articulo+' · '+v.formato])).entries()];
+  const opsArt = `<option value="">Todos los artículos</option>` + arts.map(([k,t])=>`<option value="${_esc(k)}" ${_movpArt===k?'selected':''}>${_esc(t)}</option>`).join('');
+  const opsTipo = `<option value="todos">Todos los movimientos</option>` + Object.entries(_MOVP_TIPO_TXT).map(([k,t])=>`<option value="${k}" ${_movpTipo===k?'selected':''}>${t}</option>`).join('');
+  const filtros = `<div class="fsec">Filtrar histórico</div>
+    <div class="fgrid full"><div class="fg"><label>Artículo</label><select id="movp-f-art" onchange="movpFiltroCambia()">${opsArt}</select></div></div>
+    <div class="fgrid"><div class="fg"><label>Tipo</label><select id="movp-f-tipo" onchange="movpFiltroCambia()">${opsTipo}</select></div>
+      <div class="fg"><label>Buscar</label><input id="movp-buscar" type="search" placeholder="Nº producción, detalle..." value="${_esc(_movpBusca)}" oninput="movpFiltroCambia()"></div></div>
+    <div class="fgrid"><div class="fg"><label>Desde</label><input id="movp-f-desde" type="date" value="${_esc(_movpDesde)}" onchange="movpFiltroCambia()"></div>
+      <div class="fg"><label>Hasta</label><input id="movp-f-hasta" type="date" value="${_esc(_movpHasta)}" onchange="movpFiltroCambia()"></div></div>`;
+  const acciones = `<div style="display:flex;gap:8px;margin:12px 0 4px"><button onclick="imprimirHistProduccion()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">🖨️ Imprimir</button><button onclick="compartirHistProduccion()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">📤 Compartir</button></div>`;
+  const lista = _movpFiltrados();
+  const cuerpo = lista.length ? `<div style="color:var(--t2);font-size:11.5px;margin:4px 2px">${lista.length} movimiento${lista.length===1?'':'s'}</div>` + lista.slice(0,200).map(_movpFilaHtml).join('')
+    : '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Sin movimientos con estos filtros.</div>';
+  return filtros + acciones + `<div id="movp-lista">${cuerpo}</div>`;
+}
+function movpFiltroCambia() {
+  _movpArt = document.getElementById('movp-f-art').value;
+  _movpTipo = document.getElementById('movp-f-tipo').value;
+  _movpDesde = document.getElementById('movp-f-desde').value;
+  _movpHasta = document.getElementById('movp-f-hasta').value;
+  _movpBusca = document.getElementById('movp-buscar').value;
+  const lista = _movpFiltrados();
+  document.getElementById('movp-lista').innerHTML = lista.length
+    ? `<div style="color:var(--t2);font-size:11.5px;margin:4px 2px">${lista.length} movimiento${lista.length===1?'':'s'}</div>` + lista.slice(0,200).map(_movpFilaHtml).join('')
+    : '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Sin movimientos con estos filtros.</div>';
+}
+function imprimirHistProduccion() {
+  const lista = _movpFiltrados();
+  const fecha = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const filas = lista.map(v => `<tr><td>${_fdate(v.fecha)}</td><td>${_esc(v.articulo)}</td><td>${_esc(v.formato)}</td><td>${_esc(v.numProd||'')}</td><td>${_MOVP_TIPO_TXT[v.tipo]||v.tipo}</td><td>${_esc(v.detalle||'')}</td></tr>`).join('');
+  const html = `<html><head><meta charset="utf-8"><title>Histórico de producción</title><style>
+    body{font-family:Arial,sans-serif;padding:20px;color:#222} h1{font-size:18px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:14px}
+    table{width:100%;border-collapse:collapse;font-size:12px} th,td{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left} th{background:#f4f4f4}
+  </style></head><body><h1>Histórico de producción</h1><div class="sub">${fecha} · SAT GUADEX · Palma del Río · ${lista.length} movimiento${lista.length===1?'':'s'}</div>
+  <table><thead><tr><th>Fecha</th><th>Artículo</th><th>Formato</th><th>Nº prod.</th><th>Tipo</th><th>Detalle</th></tr></thead><tbody>${filas}</tbody></table></body></html>`;
+  const win = window.open('','_blank','width=960,height=700');
+  win.document.write(html + `<script>window.onload=()=>{window.print();}<\/script>`);
+  win.document.close();
+}
+async function compartirHistProduccion() {
+  const lista = _movpFiltrados();
+  const fecha = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const lines = [`🏭 *Histórico de producción*`, `📅 ${fecha} · ${lista.length} movimiento${lista.length===1?'':'s'}`, ''];
+  lista.slice(0,300).forEach(v => { lines.push(`${_MOVP_TIPO_TXT[v.tipo]||v.tipo} · *${v.articulo}* (${v.formato})`); lines.push(`   ${_fdate(v.fecha)} · ${v.detalle||''}`); });
+  lines.push('——————————————', 'SAT GUADEX · Palma del Río');
+  const texto = lines.join('\n');
+  if (navigator.share) {
+    try { await navigator.share({ title:'Histórico de producción', text: texto }); toast('📱 Compartido'); }
+    catch(e) { if (e.name!=='AbortError') { await navigator.clipboard.writeText(texto); toast('📋 Copiado al portapapeles'); } }
+  } else {
+    try { await navigator.clipboard.writeText(texto); toast('📋 Copiado al portapapeles'); }
+    catch(e) { toast('❌ No se pudo compartir'); }
+  }
+}
+window.verHistoricoProduccion = verHistoricoProduccion; window.movpFiltroCambia = movpFiltroCambia;
+window.imprimirHistProduccion = imprimirHistProduccion; window.compartirHistProduccion = compartirHistProduccion;
 
 // ── Vista: lotes por caducar, ordenados por proximidad ──
 function _prCaducarBadge(dias) {
@@ -5963,6 +6139,7 @@ function _prNavHtml() {
     : _prView==='receta' ? (_prArt ? 'detalle' : 'materiales')
     : _prView==='receta-nueva' ? 'materiales'
     : _prView==='mat-movs' ? (_movMaterialId ? 'mat-detalle' : 'materiales')
+    : _prView==='prod-movs' ? 'lotes'
     : _prView==='mat-detalle' ? 'materiales'
     : 'stock';
   return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><button onclick="prIr('${back}')" style="border:none;background:var(--surface2);border-radius:10px;padding:10px 14px;font-weight:800;font-size:13.5px;cursor:pointer">← Volver</button><b style="font-size:14px">${_prView==='form' ? (editLoteId?'Editar lote':'Nueva producción') : ''}</b></div>`;
@@ -5979,6 +6156,7 @@ function renderProduccionList() {
   else if (_prView==='proceso') cont.innerHTML = _prProcesoHtml();
   else if (_prView==='pedidos') cont.innerHTML = _prPedidosHtml();
   else if (_prView==='lotes') cont.innerHTML = _prLotesHtml();
+  else if (_prView==='prod-movs') cont.innerHTML = _prodMovsHtml();
   else if (_prView==='caducar') cont.innerHTML = _prCaducarHtml();
   else if (_prView==='detalle') cont.innerHTML = _prDetalleHtml();
   else if (_prView==='materiales') cont.innerHTML = _matListaHtml();
@@ -6092,6 +6270,7 @@ function eliminarLoteProduccion(id){
         bricksIncompletos: (parseFloat(origen.bricksIncompletos)||0) + (parseFloat(l.bricksIncompletos)||0) });
     }
     await fbDeleteProduccion(id);
+    await registrarMovProduccion(l, 'eliminado', _descLote(l) + (origen ? ' · restaurado a '+_FASE_TXT[origen.fase] : ''));
     renderProduccionList();
     toast(origen ? '🗑 Lote eliminado · bricks restaurados en '+_FASE_TXT[origen.fase] : '🗑 Lote eliminado');
   });

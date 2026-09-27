@@ -2856,6 +2856,7 @@ const colMov = db.collection('movimientos_palets');
 const colProd = db.collection('produccion');
 const colMat = db.collection('materiales');
 const colRecetas = db.collection('recetas');
+const colMovMat = db.collection('movimientos_materiales');
 
 // ══ LOGIN ══
 (function(){
@@ -2893,6 +2894,7 @@ let pedidos = [];
 let producciones = [];
 let materiales = [];
 let recetas = [];
+let movimientosMat = [];
 colProd.onSnapshot((snap) => {
   producciones = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
@@ -2908,6 +2910,11 @@ colRecetas.onSnapshot((snap) => {
   recetas = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore recetas:', err); });
+colMovMat.onSnapshot((snap) => {
+  movimientosMat = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  movimientosMat.sort((a,b) => (b.ts||0)-(a.ts||0));
+  if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
+}, (err) => { console.error('Firestore movimientos materiales:', err); });
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
 // ── Nº automático de producción (P-AAAA-NNN) ──
@@ -3046,8 +3053,21 @@ async function consumirMateriales(articulo, formato, deltaCajas) {
   if (!r || !(r.items||[]).length) return;
   for (const it of r.items) {
     const m = materiales.find(x => String(x.id)===String(it.materialId)); if (!m) continue;
-    await fbSaveMaterial({ ...m, stock: (parseFloat(m.stock)||0) - deltaCajas*(parseFloat(it.cantidad)||0) });
+    const cantidad = -deltaCajas*(parseFloat(it.cantidad)||0);
+    const nuevo = (parseFloat(m.stock)||0) + cantidad;
+    await fbSaveMaterial({ ...m, stock: nuevo });
+    await registrarMovMaterial(m, cantidad, nuevo, (deltaCajas>0?'Consumo':'Devolución')+' · '+articulo+(formato?' · '+formato:''));
   }
+}
+// Deja constancia de cada entrada/consumo/ajuste de un material, para el informe de movimientos.
+async function registrarMovMaterial(material, cantidad, stockResultante, motivo) {
+  const id = 'mov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  await fbSaveMovMaterial({ id, materialId: material.id, materialNombre: material.nombre, unidad: material.unidad,
+    cantidad, stockResultante, motivo, ts: Date.now(), fecha: new Date().toISOString().slice(0,10) });
+}
+async function fbSaveMovMaterial(mv) {
+  try { await colMovMat.doc(String(mv.id)).set(mv); }
+  catch(e) { console.error(e); }
 }
 function _cajasEq(l) { return (parseFloat(l?.palets)||0)*(parseFloat(l?.cajasPorPalet)||0) + (parseFloat(l?.cajas)||0); }
 // Revierte el consumo de stock de un historial de cargas (usado al reabrir un pedido)
@@ -5557,20 +5577,50 @@ function _matCardHtml(m) {
     ${min>0 ? `<div style="font-size:11px;color:var(--t2);margin-top:2px">Mínimo: ${_fmtN(min)} ${_matUnidadTxt(m.unidad)}</div>` : ''}
   </div>`;
 }
-function _matListaHtml() {
-  const lista = materiales.length ? `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">${materiales.map(_matCardHtml).join('')}</div>`
-    : '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Todavía no hay materiales. Pulsa "＋ Nueva" para dar de alta el primero (botellas, tapones, cartón, bobinas...).</div>';
-  return lista + _matRecetasHtml();
+let _matBusca = '', _matFiltro = 'todos';
+function _matPasaFiltro(m, f) {
+  const stock = parseFloat(m.stock)||0, min = parseFloat(m.stockMin)||0;
+  if (f==='bajo') return min>0 && stock<=min && stock>0;
+  if (f==='agotado') return stock<=0;
+  return true;
 }
-function _matRecetasHtml() {
-  const filas = recetas.map(r => `<div onclick="abrirRecetaDirecta('${r.id}')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-top:8px">
+function _matGridHtml() {
+  const q = _normTxt(_matBusca);
+  const ms = materiales.filter(m => _matPasaFiltro(m,_matFiltro) && (!q || _normTxt(m.nombre).includes(q)));
+  if (!ms.length) return '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">No hay materiales que coincidan.</div>';
+  return `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">${ms.map(_matCardHtml).join('')}</div>`;
+}
+function _matListaHtml() {
+  if (!materiales.length) return '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Todavía no hay materiales. Pulsa "＋ Nueva" para dar de alta el primero (botellas, tapones, cartón, bobinas...).</div>' + _matRecetasHtml();
+  const chips = [['todos','Todos'],['bajo','Bajo mínimo'],['agotado','Agotados']].map(([f,t]) =>
+    `<button onclick="matFiltro('${f}')" style="flex:0 0 auto;padding:8px 12px;border-radius:999px;border:1px solid var(--border2);font-size:12.5px;font-weight:800;cursor:pointer;background:${_matFiltro===f?'var(--dhl-dark)':'var(--surface)'};color:${_matFiltro===f?'#fff':'var(--t1)'}">${t}</button>`).join('');
+  const buscador = `<input id="mat-buscar" type="search" placeholder="🔎 Buscar material..." value="${_esc(_matBusca)}" oninput="matBuscar(this.value)" style="width:100%;padding:11px;font-size:14px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1)">
+    <div style="display:flex;gap:6px;overflow-x:auto;margin:10px 0 12px;padding-bottom:2px">${chips}</div>`;
+  const btnMovs = `<button type="button" onclick="matVerMovs('')" style="width:100%;margin-top:10px;padding:11px;border:1px dashed var(--border2);border-radius:12px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">📋 Ver movimientos de materiales</button>`;
+  return buscador + `<div id="mat-grid">${_matGridHtml()}</div>` + btnMovs + _matRecetasHtml();
+}
+function matBuscar(v) { _matBusca = v; const g = document.getElementById('mat-grid'); if (g) g.innerHTML = _matGridHtml(); }
+function matFiltro(f) { _matFiltro = f; renderProduccionList(); }
+window.matBuscar = matBuscar; window.matFiltro = matFiltro;
+let _recBusca = '';
+function _recFilasHtml() {
+  const q = _normTxt(_recBusca);
+  const rs = recetas.filter(r => !q || _normTxt(r.articulo+' '+r.formato).includes(q));
+  const filas = rs.map(r => `<div onclick="abrirRecetaDirecta('${r.id}')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-top:8px">
       <div><b style="font-size:13px">${_esc(r.articulo)}</b><div style="color:var(--t2);font-size:11.5px">${_esc(r.formato)} · ${(r.items||[]).length} material${(r.items||[]).length===1?'':'es'}</div></div>
       <span style="font-size:16px">›</span>
     </div>`).join('');
+  return filas || `<div style="color:var(--t3);font-size:12.5px;padding:4px 2px">${recetas.length ? 'Ninguna receta coincide.' : 'Aún no has definido ninguna receta.'}</div>`;
+}
+function recBuscar(v) { _recBusca = v; const c = document.getElementById('rec-filas'); if (c) c.innerHTML = _recFilasHtml(); }
+function _matRecetasHtml() {
+  const buscador = recetas.length>5 ? `<input id="rec-buscar" type="search" placeholder="🔎 Buscar receta por artículo..." value="${_esc(_recBusca)}" oninput="recBuscar(this.value)" style="width:100%;padding:10px;font-size:13.5px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);margin-top:8px">` : '';
   return `<div class="fsec" style="margin-top:16px">Recetas por artículo</div>
-    ${filas || '<div style="color:var(--t3);font-size:12.5px;padding:4px 2px">Aún no has definido ninguna receta.</div>'}
+    ${buscador}
+    <div id="rec-filas">${_recFilasHtml()}</div>
     <button type="button" onclick="matNuevaReceta()" style="width:100%;margin-top:8px;padding:9px;border:1px dashed var(--border2);border-radius:10px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">＋ Nueva receta (aunque el artículo aún no se haya fabricado)</button>`;
 }
+window.recBuscar = recBuscar;
 function abrirRecetaDirecta(id) {
   const r = recetas.find(x=>String(x.id)===String(id)); if (!r) return;
   _recetaArticulo = r.articulo; _recetaFormato = r.formato; _prArt = '';
@@ -5590,17 +5640,30 @@ function _matDetalleHtml() {
   <div class="fgrid full"><div class="fg"><label>➕ Registrar entrada (compra recibida)</label>
     <div style="display:flex;gap:8px"><input id="mat-entrada" type="number" step="any" placeholder="Cantidad recibida" style="flex:1"><button onclick="matEntrada()" style="padding:0 18px;border:none;border-radius:10px;background:var(--dhl-yellow);color:var(--dhl-dark);font-weight:800;cursor:pointer">Sumar</button></div>
   </div></div>
+  <div class="fgrid full"><div class="fg"><label>Proveedor / albarán (opcional)</label><input id="mat-entrada-nota" placeholder="Ej: Envaguadex, albarán 1234"></div></div>
   <div style="display:flex;gap:8px;margin-top:14px">
     <button onclick="matEditar('${m.id}')" style="flex:1;padding:12px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">✏️ Editar</button>
     <button onclick="matBorrar('${m.id}')" style="flex:1;padding:12px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:#DC3545;font-weight:800;cursor:pointer">🗑️ Eliminar</button>
-  </div>`;
+  </div>
+  <button type="button" onclick="matVerMovs('${m.id}')" style="width:100%;margin-top:8px;padding:11px;border:1px dashed var(--border2);border-radius:12px;background:transparent;color:var(--t2);font-weight:700;cursor:pointer">📋 Ver movimientos de este material</button>
+  ${_matMovsMiniHtml(m.id)}`;
+}
+function _matMovsMiniHtml(materialId) {
+  const movs = movimientosMat.filter(v=>String(v.materialId)===String(materialId)).slice(0,5);
+  if (!movs.length) return '';
+  return `<div class="fsec" style="margin-top:16px">Últimos movimientos</div>${movs.map(_movFilaHtml).join('')}`;
 }
 async function matEntrada() {
   const m = materiales.find(x=>String(x.id)===String(_matId)); if (!m) return;
   const c = parseFloat(document.getElementById('mat-entrada').value);
   if (!(c>0)) { toast('⚠️ Indica una cantidad'); return; }
-  await fbSaveMaterial({ ...m, stock: (parseFloat(m.stock)||0) + c });
+  const notas = document.getElementById('mat-entrada-nota')?.value.trim();
+  const nuevo = (parseFloat(m.stock)||0) + c;
+  await fbSaveMaterial({ ...m, stock: nuevo });
+  await registrarMovMaterial(m, c, nuevo, notas || 'Entrada manual');
   toast('✅ Entrada registrada: +'+_fmtN(c)+' '+_matUnidadTxt(m.unidad));
+  document.getElementById('mat-entrada').value = '';
+  if (document.getElementById('mat-entrada-nota')) document.getElementById('mat-entrada-nota').value = '';
   renderProduccionList();
 }
 function matNuevo() { _matId = ''; prIr('mat-form'); }
@@ -5619,10 +5682,14 @@ function _matFormHtml() {
 async function matGuardar() {
   const nombre = document.getElementById('mat-nombre').value.trim().toUpperCase();
   if (!nombre) { toast('⚠️ Indica el nombre del material'); return; }
+  const prev = _matId ? materiales.find(x=>String(x.id)===String(_matId)) : null;
   const id = _matId || 'mat_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
-  await fbSaveMaterial({ id, nombre, unidad: document.getElementById('mat-unidad').value,
-    stock: parseFloat(document.getElementById('mat-stock').value)||0,
-    stockMin: parseFloat(document.getElementById('mat-stockmin').value)||0 });
+  const nuevoStock = parseFloat(document.getElementById('mat-stock').value)||0;
+  const material = { id, nombre, unidad: document.getElementById('mat-unidad').value,
+    stock: nuevoStock, stockMin: parseFloat(document.getElementById('mat-stockmin').value)||0 };
+  await fbSaveMaterial(material);
+  const difStock = nuevoStock - (parseFloat(prev?.stock)||0);
+  if (prev && difStock) await registrarMovMaterial(material, difStock, nuevoStock, 'Ajuste manual (edición)');
   toast(_matId ? '💾 Material actualizado' : '✅ Material creado');
   _matId = id; prIr('mat-detalle');
 }
@@ -5633,6 +5700,38 @@ function matBorrar(id) {
     prIr('materiales');
   });
 }
+// ── Informe de movimientos de materiales (entradas, consumos, ajustes) ──
+let _movMaterialId = '', _movBusca = '';
+function _movFilaHtml(v) {
+  const pos = (parseFloat(v.cantidad)||0) >= 0;
+  const icono = pos ? '➕' : '➖';
+  const color = pos ? '#22A559' : '#DC3545';
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-top:6px">
+    <div style="min-width:0">
+      <div style="font-size:12.5px;font-weight:700">${icono} ${_esc(v.materialNombre||'')}</div>
+      <div style="color:var(--t2);font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_fdate(v.fecha)} · ${_esc(v.motivo||'')}</div>
+    </div>
+    <div style="text-align:right;flex:0 0 auto">
+      <div style="font-weight:800;color:${color};font-size:13px">${pos?'+':''}${_fmtN(v.cantidad)} ${_matUnidadTxt(v.unidad)}</div>
+      <div style="color:var(--t2);font-size:10.5px">stock: ${_fmtN(v.stockResultante)}</div>
+    </div>
+  </div>`;
+}
+function matVerMovs(materialId) { _movMaterialId = materialId||''; _movBusca=''; prIr('mat-movs'); }
+function _matMovsHtml() {
+  const q = _normTxt(_movBusca);
+  let lista = movimientosMat;
+  if (_movMaterialId) lista = lista.filter(v=>String(v.materialId)===String(_movMaterialId));
+  if (q) lista = lista.filter(v=>_normTxt(v.materialNombre+' '+v.motivo).includes(q));
+  const m = _movMaterialId ? materiales.find(x=>String(x.id)===String(_movMaterialId)) : null;
+  const cabecera = m ? `<div style="font-size:16px;font-weight:900;margin-bottom:2px">${_esc(m.nombre)}</div><button onclick="matVerMovs('')" style="border:none;background:transparent;color:var(--t2);font-size:12px;text-decoration:underline;cursor:pointer;padding:0;margin-bottom:8px">Ver movimientos de todos los materiales</button>`
+    : `<input id="mov-buscar" type="search" placeholder="🔎 Buscar por material o motivo..." value="${_esc(_movBusca)}" oninput="movBuscar(this.value)" style="width:100%;padding:11px;font-size:14px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1);margin-bottom:10px">`;
+  const filas = lista.slice(0,150).map(_movFilaHtml).join('');
+  return cabecera + (filas || '<div style="text-align:center;color:var(--t3);padding:20px 10px;font-size:13px">Sin movimientos todavía.</div>');
+}
+function movBuscar(v) { _movBusca = v; const c = document.getElementById('pr-content'); if (c) c.innerHTML = _matMovsHtml(); }
+window.matVerMovs = matVerMovs; window.movBuscar = movBuscar;
+
 window.matAbrir = matAbrir; window.matEntrada = matEntrada; window.matNuevo = matNuevo;
 window.matEditar = matEditar; window.matGuardar = matGuardar; window.matBorrar = matBorrar;
 
@@ -5844,6 +5943,7 @@ function _prNavHtml() {
     : _prView==='mat-form' ? (_matId ? 'mat-detalle' : 'materiales')
     : _prView==='receta' ? (_prArt ? 'detalle' : 'materiales')
     : _prView==='receta-nueva' ? 'materiales'
+    : _prView==='mat-movs' ? (_movMaterialId ? 'mat-detalle' : 'materiales')
     : _prView==='mat-detalle' ? 'materiales'
     : 'stock';
   return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><button onclick="prIr('${back}')" style="border:none;background:var(--surface2);border-radius:10px;padding:10px 14px;font-weight:800;font-size:13.5px;cursor:pointer">← Volver</button><b style="font-size:14px">${_prView==='form' ? (editLoteId?'Editar lote':'Nueva producción') : ''}</b></div>`;
@@ -5865,6 +5965,7 @@ function renderProduccionList() {
   else if (_prView==='materiales') cont.innerHTML = _matListaHtml();
   else if (_prView==='mat-detalle') cont.innerHTML = _matDetalleHtml();
   else if (_prView==='mat-form') cont.innerHTML = _matFormHtml();
+  else if (_prView==='mat-movs') cont.innerHTML = _matMovsHtml();
   else if (_prView==='receta') cont.innerHTML = _recetaFormHtml();
   else if (_prView==='receta-nueva') cont.innerHTML = _recetaNuevaHtml();
 }

@@ -317,6 +317,20 @@ header::after{
 .fab-mat:active{transform:scale(0.92)}
 .fab-prod{position:fixed;bottom:80px;left:20px;z-index:50;width:56px;height:56px;border-radius:18px;border:2px solid #F5A623;background:#2A2E38;font-size:26px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;transition:all .2s}
 .fab-prod:active{transform:scale(0.92)}
+/* ── Botón de acciones desplegable (sustituye a los botones flotantes sueltos) ── */
+.fab-scrim{position:fixed;inset:0;z-index:55;background:rgba(10,12,16,.45);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .2s}
+.fab-scrim.open{opacity:1;pointer-events:all}
+.fab-dial{position:fixed;right:20px;bottom:80px;z-index:60;display:flex;flex-direction:column;align-items:flex-end;gap:14px}
+.fab-actions{display:flex;flex-direction:column;align-items:flex-end;gap:12px;opacity:0;transform:translateY(10px);pointer-events:none;transition:opacity .18s,transform .18s}
+.fab-dial.open .fab-actions{opacity:1;transform:none;pointer-events:all}
+.fab-act{display:flex;align-items:center;gap:10px;background:none;border:none;padding:0;cursor:pointer;font-family:var(--font-body)}
+.fab-lbl{background:#fff;color:#1C1F26;font-weight:700;font-size:13px;letter-spacing:.2px;padding:9px 14px;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.28)}
+.fab-ico{width:46px;height:46px;border-radius:14px;background:#1C1F26;color:#F5A623;display:flex;align-items:center;justify-content:center;border:1px solid rgba(245,166,35,.35);box-shadow:0 6px 16px rgba(0,0,0,.35)}
+.fab-act:active .fab-ico{transform:scale(.94)}
+.fab-main{width:58px;height:58px;border-radius:18px;border:none;cursor:pointer;background:linear-gradient(145deg,#FFBC45 0%,#F5A623 55%,#D4890A 100%);color:#1C1F26;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(212,137,10,.45)}
+.fab-main svg{transition:transform .2s}
+.fab-dial.open .fab-main svg{transform:rotate(45deg)}
+.fab-main:active{transform:scale(.94)}
 
 /* ══ GROUP HEADERS — Enterprise ══ */
 .group-header{display:flex;align-items:center;gap:12px;margin:16px 0 8px}
@@ -609,7 +623,8 @@ tr:hover td{background:rgba(245,166,35,0.06)}
 }
 .nav-item.active{color:#F5A623}
 .nav-item:hover:not(.active){color:rgba(255,255,255,0.65)}
-.nav-item span:first-child{font-size:20px}
+.nav-item span:first-child{font-size:20px;display:flex}
+.nav-item svg{width:22px;height:22px;display:block}
 
 /* ══ MODALS — Enterprise ══ */
 /* ══ MODAL — Mobile first (bottom sheet) ══ */
@@ -1219,7 +1234,7 @@ tr:hover td{background:rgba(245,166,35,0.06)}
 /* Hide main content when EP screen is active */
 body.ep-active header,body.ep-active .tabs-wrap,body.ep-active .stats-row,
 body.ep-active .search-row,body.ep-active .filter-panel,body.ep-active .scroll-content,
-body.ep-active .fab,body.ep-active .fab-prod,body.ep-active .fab-mat{display:none !important}
+body.ep-active .fab,body.ep-active .fab-prod,body.ep-active .fab-mat,body.ep-active .fab-dial,body.ep-active .fab-scrim{display:none !important}
 
 /* ════════════════════════════════════════════════════════════════════════
    ██████╗ ██████╗     ██████╗ ██████╗ ███████╗███╗   ███╗██╗██╗   ██╗███╗   ███╗
@@ -2223,10 +2238,7 @@ input[type=password],input[type=email]{text-transform:none}
   </div>
   <div class="header-right">
     <div class="today-badge" id="todayDate">— <span class="sync-dot saving" id="syncDot"></span></div>
-    <button class="export-btn" onclick="exportarJSON()" title="Exportar JSON" style="width:auto;padding:5px 10px;font-size:11px;font-weight:700;">💾 Exportar datos</button>
-    <button class="export-btn" onclick="document.getElementById('importJsonInput').click()" title="Importar JSON" style="width:auto;padding:5px 10px;font-size:11px;font-weight:700;">📥 Importar datos</button>
     <input type="file" id="importJsonInput" accept=".json" style="display:none" onchange="importarJSON(event)">
-    <button class="export-btn" onclick="exportarCSV()" title="Exportar CSV">📤</button>
   </div>
 </header>
 
@@ -2240,7 +2252,7 @@ input[type=password],input[type=email]{text-transform:none}
   </div>
   <button class="filter-btn" id="hoyBtn" onclick="filtrarHoy()" title="Pedidos de hoy" style="font-size:11px;font-weight:700;width:auto;padding:0 10px;letter-spacing:.3px;">📅 Hoy</button>
   <button class="filter-btn" id="mañanaBtn" onclick="filtrarMañana()" title="Pedidos de mañana" style="font-size:11px;font-weight:700;width:auto;padding:0 10px;letter-spacing:.3px;">📅 Mañana</button>
-  <button class="filter-btn" id="fBtn" onclick="toggleFilter()">⚙️</button>
+  <button class="filter-btn" id="fBtn" onclick="toggleFilter()" title="Filtros" aria-label="Filtros"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
 </div>
 
 <!-- FILTER PANEL -->
@@ -2270,20 +2282,25 @@ input[type=password],input[type=email]{text-transform:none}
 </div>
 
 <!-- FAB -->
-<button class="fab" onclick="openPedidoModal(null)">＋</button>
-<button class="fab-prod" onclick="openProduccionModal()" title="Producción / Stock">🏭</button>
-<button class="fab-mat" onclick="abrirMaterialesDirecto()" title="Materiales">🧱</button>
+<div class="fab-scrim" id="fabScrim" onclick="toggleDial(false)"></div>
+<div class="fab-dial" id="fabDial">
+  <div class="fab-actions">
+    <button class="fab-act" onclick="dialGo('materiales')"><span class="fab-lbl">Materiales</span><span class="fab-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span></button>
+    <button class="fab-act" onclick="dialGo('produccion')"><span class="fab-lbl">Producción / Stock</span><span class="fab-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M17 18h1"/><path d="M12 18h1"/><path d="M7 18h1"/></svg></span></button>
+    <button class="fab-act" onclick="dialGo('pedido')"><span class="fab-lbl">Nuevo pedido</span><span class="fab-ico"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></span></button>
+  </div>
+  <button class="fab-main" onclick="toggleDial()" aria-label="Acciones" aria-expanded="false"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+</div>
 
 <!-- BOTTOM NAV -->
 <div class="bottom-nav">
-  <div class="nav-item active" id="nav-pend" onclick="setTab('pendientes')"><span>📦</span>Confección</div>
-  <div class="nav-item" id="nav-term" onclick="setTab('terminado')"><span>✅</span>Terminado</div>
-  <div class="nav-item" id="nav-todos" onclick="setTab('todos')"><span>📋</span>Todos</div>
-  <div class="nav-item" id="nav-carg" onclick="setTab('cargados')"><span>🚛</span>Cargados</div>
-  <div class="nav-item" id="nav-hist" onclick="setTab('historico')"><span>🕐</span>Histórico</div>
-  <div class="nav-item" id="nav-ep" onclick="abrirEuropalets()"><span>🟫</span>Euros</div>
-  <div class="nav-item" onclick="limpiarPedidosDemo()" title="Borrar pedidos de ejemplo"><span>🧹</span>Limpiar</div>
-  <div class="nav-item" onclick="repararApp()" title="Reparar app"><span>🔧</span>Reparar</div>
+  <div class="nav-item active" id="nav-pend" onclick="setTab('pendientes')"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span>Confección</div>
+  <div class="nav-item" id="nav-term" onclick="setTab('terminado')"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></span>Terminado</div>
+  <div class="nav-item" id="nav-todos" onclick="setTab('todos')"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg></span>Todos</div>
+  <div class="nav-item" id="nav-carg" onclick="setTab('cargados')"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg></span>Cargados</div>
+  <div class="nav-item" id="nav-hist" onclick="setTab('historico')"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg></span>Histórico</div>
+  <div class="nav-item" id="nav-ep" onclick="abrirEuropalets()"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 18h12"/><path d="M6 14h12"/><rect width="12" height="12" x="6" y="10"/></svg></span>Euros</div>
+  <div class="nav-item" onclick="abrirMenuMas()" title="Más opciones"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></span>Más</div>
 </div>
 
 <!-- TOAST -->
@@ -2382,9 +2399,10 @@ input[type=password],input[type=email]{text-transform:none}
   <div class="confirm-box">
     <div class="confirm-icon" id="confirmIcon">⚠️</div>
     <div class="confirm-title" id="confirmTitle">¿Confirmar?</div>
-    <div class="confirm-msg" id="confirmMsg"></div>
-    <div class="confirm-btns">
+    <div class="confirm-msg" id="confirmMsg" style="white-space:pre-line"></div>
+    <div class="confirm-btns" id="confirmBtns">
       <button class="cbtn-cancel" onclick="closeConfirm()">Cancelar</button>
+      <button class="cbtn-cancel" id="confirmAlt" style="display:none" onclick="doConfirmAlt()"></button>
       <button class="cbtn-ok" id="confirmOk" onclick="doConfirmOk()">Aceptar</button>
     </div>
   </div>
@@ -2728,6 +2746,21 @@ input[type=password],input[type=email]{text-transform:none}
       <button class="mbtn mbtn-cancel" onclick="cerrarFaseBrik()">Cancelar</button>
       <button class="mbtn mbtn-save" id="fb-ok" onclick="confirmarFaseBrik()">Confirmar</button>
     </div>
+  </div>
+</div>
+
+<!-- MODAL: MENÚ MÁS (datos y mantenimiento) -->
+<div class="modal-bg" id="mMas" onclick="if(event.target===this)cerrarMenuMas()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-header"><div class="modal-title">Más opciones</div></div>
+    <div class="modal-scroll" style="display:flex;flex-direction:column;gap:8px">
+      <button onclick="menuMasIr(exportarJSON)" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--t1);cursor:pointer;font-family:var(--font-body)"><span style="flex:0 0 auto;width:40px;height:40px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--t1)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg></span><span><span style="display:block;font-weight:800;font-size:14px">Exportar datos</span><span style="display:block;font-size:11.5px;color:var(--t2);margin-top:2px;text-transform:none">Copia de seguridad en un archivo</span></span></button>
+      <button onclick="menuMasIr(()=>document.getElementById('importJsonInput').click())" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--t1);cursor:pointer;font-family:var(--font-body)"><span style="flex:0 0 auto;width:40px;height:40px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--t1)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg></span><span><span style="display:block;font-weight:800;font-size:14px">Importar datos</span><span style="display:block;font-size:11.5px;color:var(--t2);margin-top:2px;text-transform:none">Restaurar desde un archivo de copia</span></span></button>
+      <button onclick="menuMasIr(exportarCSV)" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--t1);cursor:pointer;font-family:var(--font-body)"><span style="flex:0 0 auto;width:40px;height:40px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--t1)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h2"/><path d="M14 13h2"/><path d="M8 17h2"/><path d="M14 17h2"/></svg></span><span><span style="display:block;font-weight:800;font-size:14px">Exportar a CSV</span><span style="display:block;font-size:11.5px;color:var(--t2);margin-top:2px;text-transform:none">Hoja de cálculo con los pedidos</span></span></button>
+      <button onclick="menuMasIr(repararApp)" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:13px 14px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--t1);cursor:pointer;font-family:var(--font-body)"><span style="flex:0 0 auto;width:40px;height:40px;border-radius:11px;background:var(--surface2);display:flex;align-items:center;justify-content:center;color:var(--t1)"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span><span style="display:block;font-weight:800;font-size:14px">Reparar aplicación</span><span style="display:block;font-size:11.5px;color:var(--t2);margin-top:2px;text-transform:none">Limpia la caché y carga la última versión</span></span></button>
+    </div>
+    <div class="modal-footer"><button class="mbtn mbtn-cancel" onclick="cerrarMenuMas()">Cerrar</button></div>
   </div>
 </div>
 
@@ -3163,9 +3196,23 @@ function confirm2(icon, title, msg, okLabel, okClass, cb) {
   confirmCallback = cb;
   document.getElementById('confirmBg').classList.add('open');
 }
+// Diálogo con dos acciones distintas además de Cancelar (botones apilados en vertical)
+let confirmAltCallback = null;
+function confirm3(icon, title, msg, okLabel, okClass, altLabel, cbOk, cbAlt) {
+  confirm2(icon, title, msg, okLabel, okClass, cbOk);
+  const alt = document.getElementById('confirmAlt');
+  alt.textContent = altLabel; alt.style.display = '';
+  document.getElementById('confirmBtns').style.flexDirection = 'column';
+  confirmAltCallback = cbAlt;
+}
+function doConfirmAlt() { const cb = confirmAltCallback; closeConfirm(); if (cb) cb(); }
+window.confirm3 = confirm3; window.doConfirmAlt = doConfirmAlt;
 function closeConfirm() {
   document.getElementById('confirmBg').classList.remove('open');
   confirmCallback=null;
+  confirmAltCallback=null;
+  const alt = document.getElementById('confirmAlt'); if (alt) alt.style.display = 'none';
+  const btns = document.getElementById('confirmBtns'); if (btns) btns.style.flexDirection = '';
   if(window._tmpCancelCarga){ window._tmpCancelCarga(); window._tmpCancelCarga=null; }
 }
 function doConfirmOk() { const cb=confirmCallback; closeConfirm(); if(cb) cb(); }
@@ -5169,26 +5216,7 @@ function syncEuropaletsToEC(){
 window.syncEuropaletsToEC = syncEuropaletsToEC;
 
 // LIMPIEZA UNICA: borra los pedidos de ejemplo que se sembraron desde la app Expo
-async function limpiarPedidosDemo(){
-  const NUMEROS_DEMO = ['001230','001231','001234','001235','001236','001237','001238','001239'];
-  const REFS_DEMO = ['EG-2026-01','AM-2026-15','IB-2026-08','LL-2026-22','FR-2026-04','SC-2026-11','EG-2026-19','AM-2026-21'];
-  const MAT_DEMO = ['1234-ABC','5678-DEF','9012-GHI','3456-JKL','7890-MNO','1357-PQR','2468-STU','8642-VWX'];
-  const candidatos = pedidos.filter(p =>
-    NUMEROS_DEMO.includes((p.num||'').toString()) ||
-    REFS_DEMO.includes(p.ref||'') ||
-    MAT_DEMO.includes(p.mat1||'')
-  );
-  if(candidatos.length===0){ toast('✅ No hay pedidos demo para borrar'); return; }
-  if(!confirm(`Se eliminarán ${candidatos.length} pedidos de ejemplo (los que NO son tuyos):\n\n` +
-              candidatos.map(p=>`#${p.num} · ${p.grupo} · ${p.ref}`).join('\n') +
-              `\n\n¿Continuar?`)) return;
-  let ok=0, fail=0;
-  for(const p of candidatos){
-    try{ await col.doc(p.id).delete(); ok++; } catch(e){ fail++; console.error(e); }
-  }
-  toast(`🧹 Borrados ${ok} pedidos demo${fail?` · ${fail} con error`:''}`);
-}
-window.limpiarPedidosDemo = limpiarPedidosDemo;
+
 
 // ============== SALDO INICIAL POR TRANSPORTISTA ==============
 function abrirSaldoInicial(transportista){
@@ -5508,6 +5536,26 @@ function openProduccionModal(){
   asignarNumerosProduccion().then(renderProduccionList);
   document.getElementById('mProduccion').classList.add('open');
 }
+// Menú "Más": copia de seguridad, importar, CSV y mantenimiento, fuera de la navegación principal
+function abrirMenuMas() { document.getElementById('mMas').classList.add('open'); }
+function cerrarMenuMas() { document.getElementById('mMas').classList.remove('open'); }
+function menuMasIr(accion) { cerrarMenuMas(); accion(); }
+window.abrirMenuMas = abrirMenuMas; window.cerrarMenuMas = cerrarMenuMas; window.menuMasIr = menuMasIr;
+// ── Botón de acciones desplegable ──
+function toggleDial(force) {
+  const d = document.getElementById('fabDial'), sc = document.getElementById('fabScrim');
+  if (!d) return;
+  const abrir = typeof force==='boolean' ? force : !d.classList.contains('open');
+  d.classList.toggle('open', abrir); sc.classList.toggle('open', abrir);
+  d.querySelector('.fab-main').setAttribute('aria-expanded', abrir ? 'true' : 'false');
+}
+function dialGo(destino) {
+  toggleDial(false);
+  if (destino==='pedido') openPedidoModal(null);
+  else if (destino==='produccion') openProduccionModal();
+  else if (destino==='materiales') abrirMaterialesDirecto();
+}
+window.toggleDial = toggleDial; window.dialGo = dialGo;
 function abrirMaterialesDirecto(){
   openProduccionModal();
   prIr('materiales');
@@ -5841,8 +5889,8 @@ function recalcularConsumoLote(id) {
   const detalle = r.items.map(it => {
     const m = materiales.find(x=>String(x.id)===String(it.materialId));
     return m ? `${m.nombre}: -${_fmtN(cajasEq*(parseFloat(it.cantidad)||0))} ${_matUnidadTxt(m.unidad)}` : '';
-  }).filter(Boolean).join('<br>');
-  confirm2('🔁','¿Recalcular consumo de este lote?', `Se descontará de nuevo, como si el lote entrara ahora en stock:<br>${detalle}`, 'Descontar', '', async()=>{
+  }).filter(Boolean).join('\n');
+  confirm2('🔁','¿Recalcular consumo de este lote?', `Se descontará de nuevo, como si el lote entrara ahora en stock:\n${detalle}`, 'Descontar', '', async()=>{
     await consumirMateriales(l.articulo, l.formato, cajasEq);
     toast('✅ Consumo aplicado');
   });
@@ -5943,8 +5991,43 @@ function _prStockHtml() {
   return `<input id="pr-buscar" type="search" placeholder="🔎 Buscar artículo, formato, lote..." value="${_esc(_prBusca)}" oninput="prBuscar(this.value)" style="width:100%;padding:12px;font-size:15px;border:1px solid var(--border2);border-radius:12px;background:var(--surface);color:var(--t1)">
     <div style="display:flex;gap:6px;overflow-x:auto;margin:10px 0 8px;padding-bottom:2px">${chips}</div>
     <div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:12px">${box(sum('pal'),'palets en stock')}${box(gs.filter(g=>g.stock).length,'artículos con stock')}${box(sum('bLl'),'bricks en llenado')}${box(sum('bEt'),'bricks etiquetados')}</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px"><button onclick="imprimirStockActual()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">🖨️ Imprimir stock</button><button onclick="compartirStockActual()" style="flex:1;padding:10px;border:1px solid var(--border2);border-radius:10px;background:var(--surface);color:var(--t1);font-weight:800;cursor:pointer">📤 Compartir stock</button></div>
     <div id="pr-grid">${_prGridHtml()}</div>`;
 }
+// Grupos que se ven ahora mismo en pantalla (respeta buscador y chip de filtro activos)
+function _stockGruposVisibles() {
+  const q = _normTxt(_prBusca);
+  return _grupos().filter(g => _pasa(g,_prFiltro) && (!q || _normTxt([g.articulo,g.formato,...g.lotes.map(l=>[l.numProd,l.lote,l.marca].join(' '))].join(' ')).includes(q)));
+}
+function imprimirStockActual() {
+  const gs = _stockGruposVisibles();
+  const fecha = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const filas = gs.map(g => `<tr><td>${_esc(g.articulo)}</td><td>${_esc(g.formato)}</td><td style="text-align:right">${g.pal}</td><td style="text-align:right">${g.caj}</td><td style="text-align:right">${g.proc>0?_fmtN(g.proc):''}</td><td>${g.cad?_fdate(g.cad):''}</td></tr>`).join('');
+  const html = `<html><head><meta charset="utf-8"><title>Stock de producción</title><style>
+    body{font-family:Arial,sans-serif;padding:20px;color:#222} h1{font-size:18px;margin:0 0 2px} .sub{color:#666;font-size:12px;margin-bottom:14px}
+    table{width:100%;border-collapse:collapse;font-size:12px} th,td{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left} th{background:#f4f4f4}
+  </style></head><body><h1>Stock de producción</h1><div class="sub">${fecha} · SAT GUADEX · Palma del Río · ${gs.length} artículo${gs.length===1?'':'s'}</div>
+  <table><thead><tr><th>Artículo</th><th>Formato</th><th style="text-align:right">Palets</th><th style="text-align:right">Cajas</th><th style="text-align:right">En proceso</th><th>Caduca</th></tr></thead><tbody>${filas}</tbody></table></body></html>`;
+  const win = window.open('','_blank','width=960,height=700');
+  win.document.write(html + `<script>window.onload=()=>{window.print();}<\/script>`);
+  win.document.close();
+}
+async function compartirStockActual() {
+  const gs = _stockGruposVisibles();
+  const fecha = new Date().toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const lines = [`📦 *Stock de producción*`, `📅 ${fecha} · ${gs.length} artículo${gs.length===1?'':'s'}`, ''];
+  gs.forEach(g => lines.push(`• *${g.articulo}*${g.formato?' ('+g.formato+')':''}: ${g.pal} pal.${g.caj?' + '+g.caj+' cajas':''}${g.proc>0?' · '+_fmtN(g.proc)+' en proceso':''}${g.cad?' · cad. '+_fdate(g.cad):''}`));
+  lines.push('——————————————', 'SAT GUADEX · Palma del Río');
+  const texto = lines.join('\n');
+  if (navigator.share) {
+    try { await navigator.share({ title:'Stock de producción', text: texto }); toast('📱 Compartido'); }
+    catch(e) { if (e.name!=='AbortError') { await navigator.clipboard.writeText(texto); toast('📋 Copiado al portapapeles'); } }
+  } else {
+    try { await navigator.clipboard.writeText(texto); toast('📋 Copiado al portapapeles'); }
+    catch(e) { toast('❌ No se pudo compartir'); }
+  }
+}
+window.imprimirStockActual = imprimirStockActual; window.compartirStockActual = compartirStockActual;
 function _stepper(l) {
   const F = ['llenado','etiquetado','encajado'], T = ['Llenado','Etiquetado','Encajado'], C = ['#F5A623','#3B82F6','#22A559'], i = F.indexOf(l.fase||'llenado');
   return `<div style="display:flex;align-items:center;gap:4px;margin:8px 0 2px;font-size:11px;flex-wrap:wrap">${F.map((x,j)=>`<span style="padding:3px 9px;border-radius:999px;font-weight:${j===i?800:600};background:${j<=i?C[j]:'var(--surface2)'};color:${j<=i?'#fff':'var(--t3)'}">${T[j]}</span>`).join('<span style="color:var(--t3)">›</span>')}</div>`;
@@ -6134,7 +6217,7 @@ function _prNavHtml() {
     };
     return `<div style="display:flex;gap:6px;margin-top:10px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px">${_PR_TABS.map(([v,t])=>T(v,t)).join('')}</div>`;
   }
-  const back = _prView==='form' ? (_prArt ? 'detalle' : 'materiales')
+  const back = _prView==='form' ? (_prArt ? 'detalle' : 'stock')
     : _prView==='mat-form' ? (_matId ? 'mat-detalle' : 'materiales')
     : _prView==='receta' ? (_prArt ? 'detalle' : 'materiales')
     : _prView==='receta-nueva' ? 'materiales'
@@ -6142,7 +6225,7 @@ function _prNavHtml() {
     : _prView==='prod-movs' ? 'lotes'
     : _prView==='mat-detalle' ? 'materiales'
     : 'stock';
-  return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><button onclick="prIr('${back}')" style="border:none;background:var(--surface2);border-radius:10px;padding:10px 14px;font-weight:800;font-size:13.5px;cursor:pointer">← Volver</button><b style="font-size:14px">${_prView==='form' ? (editLoteId?'Editar lote':'Nueva producción') : ''}</b></div>`;
+  return `<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><button id="pr-volver" onclick="prIr('${back}')" style="border:none;background:var(--surface2);border-radius:10px;padding:10px 14px;font-weight:800;font-size:13.5px;cursor:pointer">← Volver</button><b style="font-size:14px">${_prView==='form' ? (editLoteId?'Editar lote':'Nueva producción') : ''}</b></div>`;
 }
 function renderProduccionList() {
   const cont = document.getElementById('pr-content'); if (!cont) return;
@@ -6258,8 +6341,12 @@ window.cancelarEdicionLote = cancelarEdicionLote;
 function eliminarLoteProduccion(id){
   const l = producciones.find(x=>String(x.id)===String(id));
   const origen = l && l.origenId ? producciones.find(x=>String(x.id)===String(l.origenId)) : null;
-  const msg = origen ? 'Sus bricks volverán al registro anterior en '+_FASE_TXT[origen.fase]+'.' : 'Esta acción no se puede deshacer';
-  confirm2('🗑','¿Eliminar lote?',msg,'Eliminar','',async()=>{
+  const cajasEq = l ? _cajasEq(l) : 0;
+  const receta = l ? recetaPara(l.articulo, l.formato) : null;
+  const conMateriales = cajasEq>0 && receta && (receta.items||[]).some(it => materiales.some(m=>String(m.id)===String(it.materialId)));
+  const msgBase = origen ? 'Sus bricks volverán al registro anterior en '+_FASE_TXT[origen.fase]+'.' : 'Esta acción no se puede deshacer.';
+  const ejecutar = async (devolver) => {
+    if (devolver) await consumirMateriales(l.articulo, l.formato, -cajasEq);
     if (origen) {
       // Suma de nuevo lo que se había restado al dividir el lote
       await fbSaveProduccion({ ...origen,
@@ -6270,10 +6357,22 @@ function eliminarLoteProduccion(id){
         bricksIncompletos: (parseFloat(origen.bricksIncompletos)||0) + (parseFloat(l.bricksIncompletos)||0) });
     }
     await fbDeleteProduccion(id);
-    await registrarMovProduccion(l, 'eliminado', _descLote(l) + (origen ? ' · restaurado a '+_FASE_TXT[origen.fase] : ''));
+    await registrarMovProduccion(l, 'eliminado', _descLote(l) + (origen ? ' · restaurado a '+_FASE_TXT[origen.fase] : '') + (devolver ? ' · materiales devueltos' : ''));
     renderProduccionList();
-    toast(origen ? '🗑 Lote eliminado · bricks restaurados en '+_FASE_TXT[origen.fase] : '🗑 Lote eliminado');
-  });
+    toast((origen ? '🗑 Lote eliminado · bricks restaurados en '+_FASE_TXT[origen.fase] : '🗑 Lote eliminado') + (devolver ? ' · materiales devueltos' : ''));
+  };
+  if (!l) return;
+  if (conMateriales) {
+    // Este lote consumió materiales al crearse: preguntar qué hacer con ellos
+    const detalle = receta.items.map(it => {
+      const m = materiales.find(x=>String(x.id)===String(it.materialId));
+      return m ? `${m.nombre}: +${_fmtN(cajasEq*(parseFloat(it.cantidad)||0))} ${_matUnidadTxt(m.unidad)}` : '';
+    }).filter(Boolean).join('\n');
+    confirm3('🗑','¿Qué hacemos con los materiales?', `${msgBase}\n\nEste lote consumió materiales. Si los devuelves al stock:\n${detalle}`,
+      'Eliminar y devolver materiales','','Eliminar sin devolver materiales', () => ejecutar(true), () => ejecutar(false));
+  } else {
+    confirm2('🗑','¿Eliminar lote?', msgBase, 'Eliminar','', () => ejecutar(false));
+  }
 }
 window.eliminarLoteProduccion = eliminarLoteProduccion;
 
@@ -6738,6 +6837,20 @@ function repararApp() {
   function cerrarModalAbierto() {
     const confirmBg = document.getElementById('confirmBg');
     if (confirmBg && confirmBg.classList.contains('open')) { closeConfirm(); return true; }
+    const dial = document.getElementById('fabDial');
+    if (dial && dial.classList.contains('open')) { toggleDial(false); return true; }
+    const mMas = document.getElementById('mMas');
+    if (mMas && mMas.classList.contains('open')) { cerrarMenuMas(); return true; }
+    const mFase = document.getElementById('mFaseBrik');
+    if (mFase && mFase.classList.contains('open')) { cerrarFaseBrik(); return true; }
+    const mAsig = document.getElementById('mAsigPed');
+    if (mAsig && mAsig.classList.contains('open')) { cerrarAsigPedidos(); return true; }
+    const mProd = document.getElementById('mProduccion');
+    if (mProd && mProd.classList.contains('open')) {
+      const volver = document.getElementById('pr-volver'); // en una subpantalla: un paso atrás; en una pestaña: cerrar
+      if (volver) volver.click(); else closeProduccionModal();
+      return true;
+    }
     const vr = document.getElementById('vr-bg');
     if (vr && vr.classList.contains('open')) { cerrarVistaRapida(); return true; }
     const mPedido = document.getElementById('mPedido');
@@ -6766,9 +6879,25 @@ function repararApp() {
     history.pushState({cargasProApp:true}, '', location.href);
     confirm2('🚪', '¿Salir de la aplicación?', 'Se cerrará CargasPro', 'Salir', '', function () {
       saliendo = true;
-      history.back();
+      salirDeLaApp();
     });
   });
+
+  // Cierra de verdad la app. Un simple history.back() solo te deja en la primera pantalla de la app,
+  // así que se prueban, por orden, varias formas de salir.
+  function salirDeLaApp() {
+    // 1) Cerrar la ventana (funciona en la app instalada / PWA)
+    try { window.close(); } catch (_) {}
+    setTimeout(function () {
+      // 2) Si aún seguimos aquí (navegador normal con páginas previas): retroceder más allá de las entradas de la app
+      if (history.length > 2) { try { history.go(-2); } catch (_) {} }
+      setTimeout(function () {
+        // 3) Último recurso: dejar la app en una pantalla de despedida. Una pulsación más de "atrás" la cierra.
+        try { history.back(); } catch (_) {}
+        document.body.innerHTML = '<div style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#1C1F26;color:#fff;font-family:sans-serif;text-align:center;padding:24px"><div style="font-size:44px">👋</div><div style="font-size:18px;font-weight:800">CargasPro cerrado</div><div style="font-size:13px;opacity:.7">Ya puedes cerrar esta ventana.<br>Si no se cierra sola, pulsa "atrás" una vez más.</div></div>';
+      }, 400);
+    }, 250);
+  }
 })();
 
 window.repararApp = repararApp;

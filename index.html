@@ -3369,6 +3369,21 @@ header{padding:0 12px 0 8px;gap:10px;justify-content:flex-start}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script>
+// Watchdog de arranque: si la app no arranca, muestra el motivo en vez de quedarse en el logo
+(function(){
+  var err=null;
+  window.addEventListener('error',function(e){ if(!err) err=(e.message||'Error')+(e.lineno?' (línea '+e.lineno+')':''); });
+  setTimeout(function(){
+    var ls=document.getElementById('loadingScreen');
+    if(!ls||ls.classList.contains('hide')) return;
+    var t=ls.querySelector('.loading-txt'), sp=ls.querySelector('.loading-spinner');
+    if(sp) sp.style.display='none';
+    if(t) t.textContent=(typeof firebase==='undefined'?'No se cargó Firebase · ':'')+(err?'Error: '+err+' · ':'')+'Toca para reintentar';
+    ls.style.cursor='pointer'; ls.onclick=function(){location.reload();};
+  },12000);
+})();
+</script>
+<script>
 
 firebase.initializeApp({
   apiKey: "AIzaSyBog0Y7wgH5DuV9nuQhqxJB4y-HFRaljYQ",
@@ -3387,24 +3402,23 @@ const colRecetas = db.collection('recetas');
 const colMovMat = db.collection('movimientos_materiales');
 const colMovProd = db.collection('movimientos_produccion');
 
-// ══ LOGIN ══
+// ══ LOGIN ══ (sin pantalla de login en el HTML: bloque a prueba de nulos, ya no aborta el script)
 (function(){
   const SESSION_KEY = 'cp_auth_v1';
-  if(sessionStorage.getItem(SESSION_KEY) === 'ok'){
-    document.getElementById('').style.display = 'none';
-  }
+  const $ = id => document.getElementById(id);
+  const ocultarLogin = () => { const o = $('loginOverlay'); if(o) o.style.display = 'none'; };
+  if(sessionStorage.getItem(SESSION_KEY) === 'ok') ocultarLogin();
   window.doLogin = function(){
-    const u = document.getElementById('loginUser').value.trim().toUpperCase();
-    const p = document.getElementById('loginPass').value;
-    const err = document.getElementById('loginError');
-    if(u === 'JOSE' && p === 'expedicion2026'){
+    const uEl = $('loginUser'), pEl = $('loginPass'), err = $('loginError');
+    if(!uEl || !pEl) return;
+    const u = uEl.value.trim().toUpperCase();
+    if(u === 'JOSE' && pEl.value === 'expedicion2026'){
       sessionStorage.setItem(SESSION_KEY,'ok');
-      document.getElementById('').style.display = 'none';
-      err.style.display = 'none';
+      ocultarLogin();
+      if(err) err.style.display = 'none';
     } else {
-      err.style.display = 'block';
-      document.getElementById('loginPass').value = '';
-      document.getElementById('loginPass').focus();
+      if(err) err.style.display = 'block';
+      pEl.value = ''; pEl.focus();
     }
   };
 })();

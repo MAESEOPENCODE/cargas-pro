@@ -20,7 +20,7 @@
 
 
 </head>
-<body>
+<body class="operator-mode">
 
 
 </div>
@@ -91,6 +91,21 @@
   <button class="filter-btn" id="fBtn" onclick="toggleFilter()" title="Filtros" aria-label="Filtros"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:auto"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>
 </div>
 
+<!-- ACCIONES PRINCIPALES PARA OPERARIOS -->
+<section class="operator-actions" aria-label="Acciones principales">
+  <div class="operator-actions-title">¿Qué necesitas hacer?</div>
+  <div class="operator-actions-grid">
+    <button class="operator-action operator-action-primary" onclick="operadorNuevoPedido()"><span class="operator-action-icon">＋</span><span><b>Nuevo pedido</b><small>Registrar una expedición</small></span></button>
+    <button class="operator-action" onclick="operadorNuevoPalet()"><span class="operator-action-icon">▣</span><span><b>Crear palet</b><small>Guardar y etiquetar</small></span></button>
+    <button class="operator-action operator-action-load" onclick="operadorCargar()"><span class="operator-action-icon">🚚</span><span><b>Cargar pedido</b><small>Preparar la salida</small></span></button>
+    <button class="operator-action" onclick="operadorPicking()"><span class="operator-action-icon">🧺</span><span><b>Picking</b><small>Preparar cajas sueltas</small></span></button>
+  </div>
+  <div class="operator-secondary">
+    <button onclick="openProduccionModal()">Producción / stock</button>
+    <button onclick="abrirMaterialesDirecto()">Materiales</button>
+    <button onclick="abrirPalets()">Ver palets</button>
+  </div>
+</section>
 <!-- FILTER PANEL -->
 <div class="filter-panel" id="filterPanel">
   <select id="fGrupo" onchange="render()"><option value="">Todos los clientes</option></select>
@@ -398,6 +413,10 @@
             <div class="fg"><label>🧮 Total unidades</label><input id="f-totalunidades" placeholder="0" readonly tabindex="-1" style="font-weight:800"></div>
           </div>
           <div id="aviso-stock" style="display:none;margin-top:6px;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:600"></div>
+        </div>
+        <div id="productos-extra-container"></div>
+        <button type="button" class="add-line-btn" onclick="addProductoExtra({})">＋ Añadir otro artículo al pedido</button>
+      </div>
       <div class="fsec">Estado y notas</div>
       <div class="fgrid">
         <div class="fg"><label>Estado</label>

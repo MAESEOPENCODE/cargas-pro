@@ -13,6 +13,7 @@
   let salidaPedidoActivo = '';
   let salidaPorPedido = new Map();
   let salidaCargaId = '';
+  let cpEditPaletId = '';
   function cpGuardarPreparacionActiva(){ if(salidaPedidoActivo) salidaPorPedido.set(String(salidaPedidoActivo),{palets:[...salidaPalets],picking:JSON.parse(JSON.stringify(salidaPicking))}); }
   function cpCargarPreparacion(id){ const v=salidaPorPedido.get(String(id))||{palets:[],picking:[]}; salidaPalets=[...(v.palets||[])]; salidaPicking=JSON.parse(JSON.stringify(v.picking||[])); }
   let camStream = null, camTimer = null;
@@ -53,7 +54,7 @@
       const mixto=Array.isArray(x.contenido)&&x.contenido.length;
       const cont=mixto ? x.contenido.map(c=>`${esc(c.producto)}: ${esc(c.cajas||0)} cajas`).join('<br>') : [x.cajas?x.cajas+' cajas':'',x.unidades?x.unidades+' '+(x.unidadesTipo||'uds'):'' ].filter(Boolean).join(' · ')||'—';
       const prodLabel=mixto?'MIXTO':(x.producto||'');
-      return `<tr><td><span class="cp-p-code">${esc(x.id)}</span>${x.sscc?`<div style="font-size:9px;color:#74808b">SSCC ${esc(x.sscc)}</div>`:''}</td><td>${esc(x.pedidoNum||'STOCK')}<div style="font-size:10px;color:#73808c">${esc(x.cliente||'')}</div></td><td><b>${esc(prodLabel)}</b><div style="font-size:10px;color:#73808c">${esc(x.formato||'')}</div></td><td>${cont}</td><td>${esc(x.lote||'—')}</td><td>${esc(x.ubicacion||'—')}</td><td><span class="cp-p-status ${esc(x.estado||'')}">${esc(palletStatusLabel(x.estado))}</span></td><td><button class="cp-p-btn" onclick="cpImprimirEtiqueta('${esc(x.id)}')">🏷️</button> <button class="cp-p-btn" onclick="cpCambiarUbicacion('${esc(x.id)}')">📍</button> <button class="cp-p-btn" onclick="cpVerPalet('${esc(x.id)}')">Ver</button></td></tr>`;
+      return `<tr><td><span class="cp-p-code">${esc(x.id)}</span>${x.sscc?`<div style="font-size:9px;color:#74808b">SSCC ${esc(x.sscc)}</div>`:''}</td><td>${esc(x.pedidoNum||'STOCK')}<div style="font-size:10px;color:#73808c">${esc(x.cliente||'')}</div></td><td><b>${esc(prodLabel)}</b><div style="font-size:10px;color:#73808c">${esc(x.formato||'')}</div></td><td>${cont}</td><td>${esc(x.lote||'—')}</td><td>${esc(x.ubicacion||'—')}</td><td><span class="cp-p-status ${esc(x.estado||'')}">${esc(palletStatusLabel(x.estado))}</span></td><td><button class="cp-p-btn" onclick="cpImprimirEtiqueta('${esc(x.id)}')">🏷️</button> <button class="cp-p-btn" onclick="cpCambiarUbicacion('${esc(x.id)}')">📍</button> <button class="cp-p-btn" onclick="cpVerPalet('${esc(x.id)}')">Ver</button> ${x.estado==='disponible'&&!x.salidaId?`<button class="cp-p-btn" onclick="cpEditarPalet('${esc(x.id)}')">✏️ Editar</button> <button class="cp-p-btn danger" onclick="cpBorrarPalet('${esc(x.id)}')">🗑️</button>`:''}</td></tr>`;
     }).join('')}</tbody></table>`:'<div style="padding:35px;text-align:center;color:#7a8794">No hay palets que coincidan con los filtros.</div>';
   };
 
@@ -106,15 +107,16 @@
     $('cpf-producto').readOnly=true; $('cpf-formato').readOnly=true;
   }
   window.cpNuevoPalet=function(){
+    cpEditPaletId='';
     cpPedidoOptions('cpf-pedido',true);
     ['cpf-pedido','cpf-cliente','cpf-producto','cpf-formato','cpf-ref','cpf-pais','cpf-lote','cpf-cad','cpf-ubicacion','cpf-cajas','cpf-cpp','cpf-unidades','cpf-sscc','cpf-peso','cpf-notas'].forEach(id=>{if($(id)) $(id).value='';});
     if($('cpf-mixto')) $('cpf-mixto').checked=false;
     cpRenderMixto(null);
     if($('cpf-producto')) $('cpf-producto').readOnly=false; if($('cpf-formato')) $('cpf-formato').readOnly=false;
-    $('cpf-tipo').value='TERMINADO'; $('cpf-utipo').value='UDS'; $('cpPalFormTitle').textContent='Nuevo palet';
+    $('cpf-tipo').value='TERMINADO'; $('cpf-utipo').value='UDS'; $('cpPalFormTitle').textContent='Nuevo palet'; if($('cpf-save-btn'))$('cpf-save-btn').textContent='Guardar y generar etiqueta';
     $('cpPalFormModal').classList.add('open'); setTimeout(()=>$('cpf-pedido')?.focus(),100);
   };
-  window.cpCerrarPalForm=function(){ $('cpPalFormModal').classList.remove('open'); };
+  window.cpCerrarPalForm=function(){ $('cpPalFormModal').classList.remove('open'); cpEditPaletId=''; };
   window.cpPedidoChange=function(){ cpApplyPedidoSource(); cpRenderMixto(pedidoById($('cpf-pedido')?.value)); };
 
   // Generación de identificadores dentro de la misma transacción que crea el palet.
@@ -204,6 +206,20 @@
     return (p.pickingMovimientos||[]).filter(m=>up(m.producto)===up(producto)&&(!formato||!m.formato||up(m.formato)===up(formato))).reduce((a,m)=>a+(parseInt(m.cajas)||0),0);
   }
 
+  window.cpEditarPalet=function(id){
+    const x=palets.find(p=>String(p.id)===String(id)); if(!x)return;
+    if(x.estado!=='disponible'||x.salidaId){toast('⛔ Solo se pueden editar palets disponibles y no cargados');return;}
+    cpEditPaletId=String(x.id); cpPedidoOptions('cpf-pedido',true); $('cpf-pedido').value=x.pedidoId||''; cpApplyPedidoSource();
+    $('cpf-mixto').checked=!!x.mixed||Array.isArray(x.contenido)&&x.contenido.length>0; cpRenderMixto(pedidoById(x.pedidoId));
+    if(Array.isArray(x.contenido)&&x.contenido.length) document.querySelectorAll('#cpf-mezcla-list .cpf-mezcla-line').forEach(el=>{const c=x.contenido.find(v=>up(v.producto)===up(el.dataset.producto)&&(!v.formato||up(v.formato)===up(el.dataset.formato))); if(c)el.querySelector('.cpf-mezcla-cajas').value=parseInt(c.cajas)||0;});
+    $('cpf-producto').value=x.producto||''; $('cpf-formato').value=x.formato||''; $('cpf-ref').value=x.referencia||x.ref||''; $('cpf-pais').value=x.pais||''; $('cpf-tipo').value=x.tipo||'TERMINADO'; $('cpf-lote').value=x.lote||''; $('cpf-cad').value=x.caducidad||''; $('cpf-ubicacion').value=x.ubicacion||''; $('cpf-cajas').value=parseInt(x.cajas)||0; $('cpf-cpp').value=parseInt(x.cajasPorPalet)||0; $('cpf-unidades').value=parseInt(x.unidades)||0; $('cpf-utipo').value=x.unidadesTipo||'UDS'; $('cpf-sscc').value=x.sscc||''; $('cpf-peso').value=parseFloat(x.pesoKg)||0; $('cpf-notas').value=x.notas||'';
+    $('cpPalFormTitle').textContent='Editar palet '+x.id; if($('cpf-save-btn'))$('cpf-save-btn').textContent='Guardar cambios'; $('cpPalFormModal').classList.add('open');
+  };
+  window.cpBorrarPalet=function(id){
+    const x=palets.find(p=>String(p.id)===String(id)); if(!x)return;
+    if(x.estado!=='disponible'||x.salidaId||Object.keys(x.reservasCajas||{}).length){toast('⛔ Solo se pueden borrar palets disponibles, sin reservas ni cargas');return;}
+    confirm2('🗑️','Borrar palet','Se eliminará '+x.id+' de forma permanente. Esta acción no se puede deshacer.','Borrar','red',async()=>{try{await db.runTransaction(async tx=>{const ref=colPalets.doc(x.id),snap=await tx.get(ref);if(!snap.exists)throw new Error('El palet ya no existe');const cur=snap.data();if(cur.estado!=='disponible'||cur.salidaId||Object.keys(cur.reservasCajas||{}).length)throw new Error('El palet ya no está disponible para borrar');tx.delete(ref);tx.set(colMovLogistica.doc(),{paletId:x.id,accion:'eliminado',estado:'eliminado',ts:Date.now(),fecha:nowISO(),pedidoId:cur.pedidoId||'',pedidoNum:cur.pedidoNum||'',detalle:'Borrado manual del palet'});});cpRenderPalets();toast('✅ Palet '+x.id+' borrado');}catch(e){console.error(e);toast('❌ No se pudo borrar el palet: '+(e.message||e));}});
+  };
   window.cpGuardarPalet=async function(){
     const p=pedidoById($('cpf-pedido').value), mixed=!!$('cpf-mixto')?.checked && !!p;
     let contenido=[];
@@ -217,11 +233,17 @@
     const producto=mixed?'MIXTO':up($('cpf-producto').value); if(!producto){toast('⚠️ Indica el producto');return;}
     const sscc=String($('cpf-sscc').value||'').replace(/\D/g,''); if(sscc && sscc.length!==18){toast('⚠️ El SSCC debe tener 18 dígitos');return;}
     const cajas=mixed?contenido.reduce((a,c)=>a+c.cajas,0):(parseInt($('cpf-cajas').value)||0), unidades=mixed?1:(parseInt($('cpf-unidades').value)||0), cpp=parseInt($('cpf-cpp').value)||0;
-    const base={pedidoId:p?.id||'',pedidoNum:p?.num||'',cliente:up(p?.grupo||''),producto,formato:mixed?'MIXTO':up($('cpf-formato').value),referencia:up($('cpf-ref').value),prodRef:up(line?.ref||p?.prodRef||''),pais:up($('cpf-pais').value),tipo:up($('cpf-tipo').value),lote:up($('cpf-lote').value),caducidad:$('cpf-cad').value||'',ubicacion:up($('cpf-ubicacion').value),cajas,cajasPorPalet:cpp,unidades,unidadesTipo:up($('cpf-utipo').value)||'UDS',pesoKg:parseFloat($('cpf-peso').value)||0,sscc,notas:up($('cpf-notas').value),...(mixed?{contenido,mixed:true}:{}),estado:'disponible',source:'manual',createdAt:firebase.firestore.FieldValue.serverTimestamp(),createdIso:nowISO()};
-    if(p) base.pedidoCliente=up(p.grupo||''); let id='';
-    try{ await withPalletIds(1,async(tx,ids)=>{ id=ids[0]; const data={...base,id}; tx.set(colPalets.doc(id),data); tx.set(colMovLogistica.doc(),{paletId:id,accion:'creado',estado:'disponible',ts:Date.now(),fecha:nowISO(),detalle:'Alta de unidad logística',pedidoId:data.pedidoId||'',pedidoNum:data.pedidoNum||''}); });
-      cpCerrarPalForm(); cpRenderPalets(); toast('✅ Palet '+id+' creado'); setTimeout(()=>cpImprimirEtiqueta(id),250);
-    }catch(e){ console.error(e); toast('❌ No se pudo crear el palet: '+(e.message||e)); }
+    const base={pedidoId:p?.id||'',pedidoNum:p?.num||'',cliente:up(p?.grupo||''),producto,formato:mixed?'MIXTO':up($('cpf-formato').value),referencia:up($('cpf-ref').value),prodRef:up(p?.prodRef||$('cpf-ref').value||''),pais:up($('cpf-pais').value),tipo:up($('cpf-tipo').value),lote:up($('cpf-lote').value),caducidad:$('cpf-cad').value||'',ubicacion:up($('cpf-ubicacion').value),cajas,cajasPorPalet:cpp,unidades,unidadesTipo:up($('cpf-utipo').value)||'UDS',pesoKg:parseFloat($('cpf-peso').value)||0,sscc,notas:up($('cpf-notas').value),...(mixed?{contenido,mixed:true}:{}),estado:'disponible',source:'manual',createdAt:firebase.firestore.FieldValue.serverTimestamp(),createdIso:nowISO()};
+    if(p) base.pedidoCliente=up(p.grupo||''); let id=cpEditPaletId||'';
+    try{
+      if(id){
+        const ref=colPalets.doc(id); await db.runTransaction(async tx=>{const snap=await tx.get(ref);if(!snap.exists)throw new Error('El palet ya no existe');const cur=snap.data();if(cur.estado!=='disponible'||cur.salidaId)throw new Error('El palet ya no está disponible para editar');const data={...base,id,estado:cur.estado,source:cur.source||'manual',createdAt:cur.createdAt||firebase.firestore.FieldValue.serverTimestamp(),createdIso:cur.createdIso||nowISO(),updatedAt:firebase.firestore.FieldValue.serverTimestamp(),mixed:!!mixed,contenido:mixed?contenido:[]};tx.set(ref,data);tx.set(colMovLogistica.doc(),{paletId:id,accion:'editado',estado:cur.estado,ts:Date.now(),fecha:nowISO(),detalle:'Modificación manual del palet',pedidoId:data.pedidoId||'',pedidoNum:data.pedidoNum||''});});
+        cpCerrarPalForm(); cpRenderPalets(); toast('✅ Palet '+id+' actualizado');
+      }else{
+        await withPalletIds(1,async(tx,ids)=>{ id=ids[0]; const data={...base,id}; tx.set(colPalets.doc(id),data); tx.set(colMovLogistica.doc(),{paletId:id,accion:'creado',estado:'disponible',ts:Date.now(),fecha:nowISO(),detalle:'Alta de unidad logística',pedidoId:data.pedidoId||'',pedidoNum:data.pedidoNum||''}); });
+        cpCerrarPalForm(); cpRenderPalets(); toast('✅ Palet '+id+' creado'); setTimeout(()=>cpImprimirEtiqueta(id),250);
+      }
+    }catch(e){ console.error(e); toast('❌ No se pudo guardar el palet: '+(e.message||e)); }
   };
 
   window.cpVerPalet=function(id){ const x=palets.find(p=>String(p.id)===String(id)); if(!x)return; const contenido=Array.isArray(x.contenido)&&x.contenido.length?x.contenido.map(c=>`${c.producto}: ${c.cajas||0} cajas`).join('\n'):`${x.cajas||0} cajas · ${x.unidades||0} ${x.unidadesTipo||'uds'}`; const msg=[`PALET ${x.id}`,`Pedido: ${x.pedidoNum||'STOCK'}`,`Cliente: ${x.cliente||'—'}`,`Producto: ${x.mixed?'MIXTO':(x.producto||'—')}`,`Formato: ${x.formato||'—'}`,`Lote: ${x.lote||'—'}`,`Contenido: ${contenido}`,`Estado: ${palletStatusLabel(x.estado)}`,`Ubicación: ${x.ubicacion||'—'}`].join('\n'); confirm2('▣','Detalle del palet',msg,'Imprimir etiqueta','blue',()=>cpImprimirEtiqueta(id)); };

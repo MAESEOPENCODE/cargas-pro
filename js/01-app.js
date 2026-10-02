@@ -2149,6 +2149,17 @@ function dialGo(destino) {
   else if (destino==='materiales') abrirMaterialesDirecto();
 }
 window.toggleDial = toggleDial; window.dialGo = dialGo;
+// Acciones simplificadas para el modo operario.
+function operadorNuevoPedido(){ openPedidoModal(null); }
+function operadorNuevoPalet(){ abrirPalets(); setTimeout(()=>window.cpNuevoPalet?.(),80); }
+function operadorCargar(){
+  const list=(typeof pedidos!=='undefined'?pedidos:[]).filter(p=>['terminado','pendiente','en_preparacion'].includes(String(p.estado||p.status||'').toLowerCase()));
+  if(list.length===1){ window.cpNuevaSalida?.(); setTimeout(()=>{ const el=document.getElementById('cps-pedido'); if(el){el.value=String(list[0].id); el.dispatchEvent(new Event('change'));} },100); return; }
+  setTab('terminado');
+  toast(list.length ? 'Selecciona el pedido terminado que quieres cargar' : 'No hay pedidos preparados para cargar');
+}
+function operadorPicking(){ abrirOperaciones(); setTimeout(()=>document.getElementById('opsPicking')?.scrollIntoView({behavior:'smooth',block:'start'}),100); }
+window.operadorNuevoPedido=operadorNuevoPedido; window.operadorNuevoPalet=operadorNuevoPalet; window.operadorCargar=operadorCargar; window.operadorPicking=operadorPicking;
 function abrirMaterialesDirecto(){
   openProduccionModal();
   prIr('materiales');

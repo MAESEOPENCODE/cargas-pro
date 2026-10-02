@@ -1,56 +1,51 @@
-const CACHE = 'cargas-pro-v3';
-const CORE = [
-  'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;700&display=swap',
-  'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js',
-  'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js'
+const CACHE_NAME = 'cargas-pro-shell-v2';
+const APP_SHELL = [
+  './',
+  './index.html',
+  './css/app.css',
+  './js/00-watchdog.js',
+  './js/01-app.js',
+  './js/02-navigation.js',
+  './js/03-palets.js'
 ];
 
-self.addEventListener('install', e => {
-  self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE).catch(() => {})));
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  const url = e.request.url;
-  if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('chrome-extension:')) return;
-  if (url.includes('firestore.googleapis.com') || url.includes('firebase')) {
-    e.respondWith(fetch(e.request).catch(() => new Response('', { status: 503 })));
-    return;
-  }
-  if (url.includes('fonts.g') || url.includes('gstatic.com')) {
-    e.respondWith(
-      caches.match(e.request).then(cached => cached || fetch(e.request).then(r => {
-        const clone = r.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
-        return r;
-      }).catch(() => new Response('', { status: 503 })))
-    );
-    return;
-  }
-  e.respondWith(
-    fetch(e.request).then(r => {
-      if (r && r.ok) {
-        const clone = r.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(
+      keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+    )).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(
+    fetch(event.request).then(response => {
+      if (response && (response.ok || response.type === 'opaque')) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {});
       }
-      return r;
-    }).catch(() => caches.match(e.request).then(c => c || new Response('Sin conexión', { status: 503 })))
+      return response;
+    }).catch(() => caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      if (event.request.mode === 'navigate') return caches.match('./index.html');
+      return new Response('', {status: 503, statusText: 'Offline'});
+    }))
   );
 });
 
-self.addEventListener('message', e => {
-  if (e.data === 'SKIP_WAITING') self.skipWaiting();
-  if (e.data === 'CLEAR_CACHE') {
-    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
-      .then(() => e.source.postMessage('CACHE_CLEARED'));
+self.addEventListener('message', event => {
+  if (event.data === 'CLEAR_CACHE') {
+    caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))).then(() => {
+      self.clients.matchAll().then(clients => clients.forEach(client => client.postMessage('CACHE_CLEARED')));
+    });
   }
 });

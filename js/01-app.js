@@ -1,6 +1,6 @@
 // La apiKey web de Firebase no es un secreto por diseño; la protección real está en reglas Firestore/App Check.
 // Estado compartido entre los módulos clásicos cargados por index.html.
-var db=null, auth=null, currentUser=null, offlineReady=Promise.resolve(), col=null, colMov=null, colProd=null, colMat=null, colRecetas=null, colMovMat=null, colMovProd=null, colPalets=null, colSalidasPalets=null, colMovLogistica=null;
+var db=null, auth=null, currentUser=null, currentRole='operario', offlineReady=Promise.resolve(), col=null, colMov=null, colProd=null, colMat=null, colRecetas=null, colMovMat=null, colMovProd=null, colPalets=null, colSalidasPalets=null, colMovLogistica=null, colAuditoria=null;
 try {
   if(typeof firebase==='undefined') throw new Error('SDK Firebase no cargado');
   if(!firebase.apps?.length) firebase.initializeApp({
@@ -21,7 +21,7 @@ try {
   col=db.collection('pedidos'); colMov=db.collection('movimientos_palets'); colProd=db.collection('produccion');
   colMat=db.collection('materiales'); colRecetas=db.collection('recetas'); colMovMat=db.collection('movimientos_materiales');
   colMovProd=db.collection('movimientos_produccion'); colPalets=db.collection('palets'); colSalidasPalets=db.collection('salidas_palets');
-  colMovLogistica=db.collection('movimientos_logistica');
+  colMovLogistica=db.collection('movimientos_logistica'); colAuditoria=db.collection('auditoria');
 } catch(e) {
   console.error('Firebase init:',e);
   const ls=document.getElementById('loadingScreen');
@@ -54,6 +54,30 @@ function cpNum(value, fallback=0){
   return Number.isFinite(n) ? n : fallback;
 }
 function cpInt(value, fallback=0){ const n=Number(value); return Number.isInteger(n) && Number.isFinite(n) ? n : (value===''||value==null?fallback:parseInt(value,10)||fallback); }
+function _cpActor(){ return { uid: currentUser?.uid||'', email: currentUser?.email||'' }; }
+function _cpAudit(data, action){
+  const actor=_cpActor(), now=Date.now();
+  const out={...data, updatedAtMs:now, updatedBy:actor.uid, updatedByEmail:actor.email, lastAction:action||'actualizado'};
+  if(!data.createdAt) out.createdAt=now;
+  if(!data.createdBy) { out.createdBy=actor.uid; out.createdByEmail=actor.email; }
+  return out;
+}
+async function registrarAuditoria(action, collection, documentId, detail){
+  if(!colAuditoria || !currentUser) return;
+  const id='aud_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  try { await colAuditoria.doc(id).set({id,action,collection,documentId:String(documentId||''),detail:detail||'',..._cpActor(),ts:Date.now(),fecha:new Date().toISOString()}); }
+  catch(e){ console.warn('Auditoría no registrada:',e); }
+}
+function _cpEsAdmin(){ return currentRole==='admin'; }
+function _cpClean(value){
+  if(Array.isArray(value)) return value.map(_cpClean);
+  if(value && typeof value==='object' && !(value instanceof Date) && !(value?.toDate)) {
+    const out={};
+    Object.entries(value).forEach(([k,v])=>{ if(v!==undefined) out[k]=_cpClean(v); });
+    return out;
+  }
+  return value;
+}
 function cpNormalizePedido(p){
   const x={schemaVersion:CP_SCHEMA_VERSION, ...p};
   x.uds=cpInt(x.uds); x.cajas=cpInt(x.cajas); x.udsCargados=cpInt(x.udsCargados); x.cajasCargadas=cpInt(x.cajasCargadas);
@@ -213,23 +237,23 @@ function planConsumo(articulo, pal, caj, formato, pedidoId, prodRef, soloProd) {
 }
 
 async function fbSaveProduccion(l) {
-  setSyncStatus('saving');
-  try { await colProd.doc(String(l.id)).set(l); setSyncStatus('ok'); }
+  setSyncStatus('saving'); l=_cpAudit(l, 'produccion_guardada');
+  try { await colProd.doc(String(l.id)).set(l); await registrarAuditoria('produccion_guardada','produccion',l.id,l.numProd||l.articulo); setSyncStatus('ok'); }
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar producción'); }
 }
 async function fbSaveMaterial(m) {
-  setSyncStatus('saving');
-  try { await colMat.doc(String(m.id)).set(m); setSyncStatus('ok'); }
+  setSyncStatus('saving'); m=_cpAudit(m, 'material_guardado');
+  try { await colMat.doc(String(m.id)).set(m); await registrarAuditoria('material_guardado','materiales',m.id,m.nombre||''); setSyncStatus('ok'); }
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar material'); }
 }
 async function fbDeleteMaterial(id) {
   setSyncStatus('saving');
-  try { await colMat.doc(String(id)).delete(); setSyncStatus('ok'); }
+  try { await colMat.doc(String(id)).delete(); await registrarAuditoria('material_eliminado','materiales',id,''); setSyncStatus('ok'); }
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al eliminar material'); }
 }
 async function fbSaveReceta(r) {
-  setSyncStatus('saving');
-  try { await colRecetas.doc(String(r.id)).set(r); setSyncStatus('ok'); }
+  setSyncStatus('saving'); r=_cpAudit(r, 'receta_guardada');
+  try { await colRecetas.doc(String(r.id)).set(r); await registrarAuditoria('receta_guardada','recetas',r.id,r.articulo||''); setSyncStatus('ok'); }
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar receta'); }
 }
 // Descuenta materiales según la receta del artículo+formato, proporcional a las cajas nuevas producidas.
@@ -459,10 +483,12 @@ function startPedidoListener(){ if (!db) return; col.onSnapshot((snapshot) => {
 }
 
 // Las suscripciones se inician solo después de autenticar al usuario.
-if (auth) auth.onAuthStateChanged(user=>{
+if (auth) auth.onAuthStateChanged(async user=>{
   currentUser=user;
   const label=document.getElementById('authUser');
   if(user){
+    currentRole='operario';
+    try { const prof=await db.collection('usuarios').doc(user.uid).get(); currentRole=prof.exists ? (prof.data().rol||'operario') : 'operario'; } catch(_) {}
     if(label)label.textContent=user.email||'';
     window._cpHideLogin?.();
     offlineReady.then(()=>{if(!window._cpListenersStarted){window._cpListenersStarted=true;startReferenceListeners();startPedidoListener();}});
@@ -470,9 +496,10 @@ if (auth) auth.onAuthStateChanged(user=>{
 });
 
 async function fbSave(p) {
-  setSyncStatus('saving');
+  setSyncStatus('saving'); p=_cpAudit(p, 'pedido_guardado');
   try {
     await db.collection('pedidos').doc(String(p.id)).set(p);
+    await registrarAuditoria('pedido_guardado','pedidos',p.id,p.num||p.grupo||'');
     setSyncStatus('ok');
   } catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al guardar'); }
 }
@@ -481,6 +508,7 @@ async function fbDelete(id) {
   setSyncStatus('saving');
   try {
     await db.collection('pedidos').doc(String(id)).delete();
+    await registrarAuditoria('pedido_eliminado','pedidos',id,'');
     setSyncStatus('ok');
   } catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al eliminar'); }
 }
@@ -1184,9 +1212,9 @@ async function savePedido() {
     id, createdAt: editId ? (pedidos.find(x=>x.id===editId)?.createdAt || Date.now()) : Date.now(),
     num:get('f-num'), grupo:get('f-grupo'), producto:get('f-producto'), ref:get('f-ref'),
     uds:get('f-uds'), cajas:get('f-cajas'), cpp:get('f-cpp'), totalCajas:get('f-totalcajas'), udsCaja:get('f-udscaja'), totalUnidades:get('f-totalunidades'), formato:get('f-formato'), prodRef:(document.getElementById('f-prodRef')?.dataset.want||''), pais:get('f-pais'),
-    mat1:get('f-mat1').toUpperCase(), mat2:get('f-mat2').toUpperCase(),
-    hora:document.getElementById('f-hora').value,
-    hora_salida:document.getElementById('f-hora-salida').value,
+    mat1:get('f-mat1'), mat2:get('f-mat2'),
+    hora:(document.getElementById('f-hora')?.value||''),
+    hora_salida:(document.getElementById('f-hora-salida')?.value||''),
     muelle:get('f-muelle'), transportista:get('f-transportista'),
     status:document.getElementById('f-status').value,
     fecha:document.getElementById('f-fecha').value,
@@ -1215,12 +1243,11 @@ async function savePedido() {
 }
 
 async function guardarPedidoYMovimientoAtomico(p){
-  p=cpNormalizePedido(p);
-  const movId='pedido_'+p.id;
-  const batch=db.batch();
-  batch.set(col.doc(String(p.id)),p,{merge:false});
+  p=_cpClean(_cpAudit(cpNormalizePedido(p), 'pedido_guardado'));
+  if(!currentUser) throw new Error('Sesión no disponible');
   setSyncStatus('saving');
-  await batch.commit();
+  await col.doc(String(p.id)).set(p,{merge:false});
+  await registrarAuditoria('pedido_guardado','pedidos',p.id,p.num||p.grupo||'');
   setSyncStatus('ok');
 }
 
@@ -1237,9 +1264,11 @@ async function _doSavePedido(p) {
     await guardarPedidoYMovimientoAtomico(p);
     toast(editId ? '✏️ Pedido actualizado' : '✅ Pedido creado');
   } catch(e) {
-    console.error('Guardado atómico del pedido:',e);
+    console.error('Guardado del pedido:',e);
     setSyncStatus('offline');
-    toast('❌ No se completó la operación. Pedido y movimiento no se han aplicado.',5000);
+    const code=e?.code||'';
+    const detail=code==='permission-denied'?'Permisos insuficientes. Publica las reglas actualizadas.':(code==='unavailable'?'Sin conexión: el cambio quedará pendiente si Firebase tiene caché activa.':(e?.message||'Error desconocido'));
+    toast('❌ No se pudo guardar: '+detail,6500);
   }
 }
 
@@ -1798,64 +1827,56 @@ async function compartirTabla() {
 }
 
 async function exportarJSON() {
-  if (!pedidos || pedidos.length === 0) { toast('⚠️ No hay pedidos para exportar'); return; }
-  toast('⏳ Preparando copia de seguridad...', 2000);
-  const fecha = new Date().toISOString().slice(0,10);
-  const payload = {
-    exportado: new Date().toISOString(),
-    empresa: 'SAT GUADEX S.L.',
-    version: 3,
-    total: pedidos.length,
-    pedidos
+  if (!currentUser) { toast('⚠️ Inicia sesión para hacer una copia'); return; }
+  toast('⏳ Preparando copia completa...', 2200);
+  const refs={
+    pedidos:col, produccion:colProd, materiales:colMat, recetas:colRecetas,
+    movimientos_materiales:colMovMat, movimientos_produccion:colMovProd,
+    palets:colPalets, salidas_palets:colSalidasPalets,
+    movimientos_logistica:colMovLogistica, auditoria:colAuditoria
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `CargasPro_${fecha}.json`; a.click();
-  URL.revokeObjectURL(url);
-  toast(`✅ Copia exportada · ${pedidos.length} pedidos`);
+  const colecciones={};
+  for (const [nombre,ref] of Object.entries(refs)) {
+    try { const snap=await ref.get(); colecciones[nombre]=snap.docs.map(d=>({id:d.id,...d.data()})); }
+    catch(e) { colecciones[nombre]=[]; console.warn('Copia: no se pudo leer',nombre,e); }
+  }
+  const total=Object.values(colecciones).reduce((n,a)=>n+a.length,0);
+  const fecha=new Date().toISOString();
+  const payload={exportado:fecha,empresa:'SAT GUADEX S.L.',version:4,tipo:'cargas-pro-backup-completo',colecciones};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=`CargasPro_backup_${fecha.slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
+  await registrarAuditoria('backup_exportado','backup','local',`${total} documentos`);
+  toast(`✅ Copia completa exportada · ${total} documentos`);
 }
-
 function importarJSON(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (e) => {
+  const file=event.target.files?.[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async e=>{
     try {
-      const data = JSON.parse(e.target.result);
-      const lista = Array.isArray(data) ? data : (data.pedidos || []);
-      if (!lista.length) { toast('⚠️ El archivo no contiene datos'); return; }
-      const desc = [
-        lista.length ? `${lista.length} pedidos` : '',
-      ].filter(Boolean).join(' y ');
-      confirm2('📥','Importar JSON',
-        `¿Importar ${desc}? Se añadirán a los datos existentes.`,
-        'Importar', '',
-        async () => {
-          let okP = 0, errP = 0;
-          setSyncStatus('saving');
-          // Importar pedidos
-          for (const p of lista) {
-            try {
-              const { id: _id, ...rest } = p;
-              await col.add({ ...rest, _importado: new Date().toISOString() });
-              okP++;
-            } catch(_) { errP++; }
+      if(!_cpEsAdmin()){ toast('⛔ Solo un administrador puede restaurar copias'); return; }
+      const data=JSON.parse(e.target.result);
+      const colecciones=data.colecciones && typeof data.colecciones==='object' ? data.colecciones : {pedidos:Array.isArray(data)?data:(data.pedidos||[])};
+      const permitidas=['pedidos','produccion','materiales','recetas','movimientos_materiales','movimientos_produccion','palets','salidas_palets','movimientos_logistica'];
+      const entradas=permitidas.flatMap(nombre=>(Array.isArray(colecciones[nombre])?colecciones[nombre]:[]).map(x=>({nombre,x})));
+      if(!entradas.length){ toast('⚠️ El archivo no contiene datos restaurables'); return; }
+      confirm2('📥','Restaurar copia completa',`¿Restaurar ${entradas.length} documentos? Se reemplazarán los documentos con el mismo ID.`, 'Restaurar','', async()=>{
+        setSyncStatus('saving'); let ok=0,err=0;
+        for(let i=0;i<entradas.length;i+=400){
+          const batch=db.batch();
+          for(const {nombre,x} of entradas.slice(i,i+400)){
+            try { const {id,...rest}=x; if(!id)throw new Error('sin id'); batch.set(db.collection(nombre).doc(String(id)),{...rest,_restaurado:new Date().toISOString()},{merge:false}); ok++; }
+            catch(_){err++;}
           }
-          setSyncStatus('');
-          const resP = okP ? `✅ ${okP} pedidos` : '';
-          const resErr = errP ? `· ❌ ${errP} errores` : '';
-          toast([resP, resM, resErr].filter(Boolean).join(' · '));
+          try { await batch.commit(); } catch(_){ err+=Math.min(400,entradas.length-i); }
         }
-      );
-    } catch(_) {
-      toast('❌ Archivo JSON inválido');
-    }
+        setSyncStatus('ok'); await registrarAuditoria('backup_importado','backup','local',`${ok} documentos; ${err} errores`);
+        toast(`✅ Restauración terminada · ${ok} documentos${err?' · ❌ '+err+' errores':''}`,4000);
+      });
+    } catch(_) { toast('❌ Archivo JSON inválido'); }
   };
-  reader.readAsText(file);
-  event.target.value = '';
+  reader.readAsText(file); event.target.value='';
 }
-
 window.render=render; window.exportarCSV=exportarCSV; window.exportarJSON=exportarJSON; window.importarJSON=importarJSON; window.imprimirTabla=imprimirTabla;
 window.compartirTabla=compartirTabla; window.closeConfirm=closeConfirm; window.doConfirmOk=doConfirmOk;
 window.setTab=setTab; window.setView=setView; window.toggleFilter=toggleFilter;

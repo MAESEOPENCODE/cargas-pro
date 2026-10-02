@@ -2486,7 +2486,7 @@ header{padding:0 12px 0 8px;gap:10px;justify-content:flex-start}
 
 /* ══ MODO OPERARIO — acciones principales simplificadas ══ */
 body.operator-mode .nav-ribbon{display:none!important}
-body.operator-mode .nav-pane{display:none!important}
+body.operator-mode .nav-pane{display:block!important}
 body.operator-mode .nav-main{width:100%}
 .operator-actions{padding:14px 16px 12px;background:#F3F7FB;border-bottom:1px solid var(--nav-field)}
 .operator-actions-title{font-size:12px;font-weight:800;color:var(--nav-navy);margin-bottom:9px}

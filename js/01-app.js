@@ -1,6 +1,6 @@
 // La apiKey web de Firebase no es un secreto por diseño; la protección real está en reglas Firestore/App Check.
 // Estado compartido entre los módulos clásicos cargados por index.html.
-var db=null, auth=null, currentUser=null, col=null, colMov=null, colProd=null, colMat=null, colRecetas=null, colMovMat=null, colMovProd=null, colPalets=null, colSalidasPalets=null, colMovLogistica=null;
+var db=null, auth=null, currentUser=null, offlineReady=Promise.resolve(), col=null, colMov=null, colProd=null, colMat=null, colRecetas=null, colMovMat=null, colMovProd=null, colPalets=null, colSalidasPalets=null, colMovLogistica=null;
 try {
   if(typeof firebase==='undefined') throw new Error('SDK Firebase no cargado');
   if(!firebase.apps?.length) firebase.initializeApp({
@@ -13,6 +13,11 @@ try {
   });
   auth=firebase.auth();
   db=firebase.firestore();
+  // Caché local y cola de escrituras para trabajar temporalmente sin red.
+  offlineReady = db.enablePersistence({synchronizeTabs:true}).then(()=>true).catch(err=>{
+    console.warn('Firestore offline no disponible en esta pestaña:',err.code||err.message||err);
+    return false;
+  });
   col=db.collection('pedidos'); colMov=db.collection('movimientos_palets'); colProd=db.collection('produccion');
   colMat=db.collection('materiales'); colRecetas=db.collection('recetas'); colMovMat=db.collection('movimientos_materiales');
   colMovProd=db.collection('movimientos_produccion'); colPalets=db.collection('palets'); colSalidasPalets=db.collection('salidas_palets');
@@ -457,8 +462,11 @@ function startPedidoListener(){ if (!db) return; col.onSnapshot((snapshot) => {
 if (auth) auth.onAuthStateChanged(user=>{
   currentUser=user;
   const label=document.getElementById('authUser');
-  if(user){if(label)label.textContent=user.email||'';window._cpHideLogin?.();if(!window._cpListenersStarted){window._cpListenersStarted=true;startReferenceListeners();startPedidoListener();}}
-  else{if(label)label.textContent='';hideLoadingScreen();window._cpShowLogin?.();}
+  if(user){
+    if(label)label.textContent=user.email||'';
+    window._cpHideLogin?.();
+    offlineReady.then(()=>{if(!window._cpListenersStarted){window._cpListenersStarted=true;startReferenceListeners();startPedidoListener();}});
+  } else {if(label)label.textContent='';hideLoadingScreen();window._cpShowLogin?.();}
 });
 
 async function fbSave(p) {
@@ -3326,3 +3334,8 @@ window.repararApp = repararApp;
     if(scrim)scrim.style.setProperty('display',open?'block':'none','important');
   };
 })();
+
+
+// Estado de conectividad visible para el operario. Firestore sincroniza la cola al volver la red.
+window.addEventListener('offline',()=>{setSyncStatus('offline');toast('Sin conexión: los cambios quedarán pendientes de sincronizar',3200);});
+window.addEventListener('online',()=>{setSyncStatus('saving');toast('Conexión recuperada: sincronizando…',2600);});

@@ -84,7 +84,7 @@
   <div class="np-sec">OPERACIONES</div>
   <div class="np-module" onclick="npGo(function(){abrirOperaciones()})"><span class="np-module-icon">▦</span><span class="np-module-main"><b>Centro de operaciones</b><small>Control de almacén y expedición</small></span><span class="np-module-arrow">›</span></div>
   <div class="np-sec">ALMACÉN Y LOGÍSTICA</div>
-  <div class="np-module" onclick="npGo(function(){abrirPalets()})"><span class="np-module-icon">▣</span><span class="np-module-main"><b>Palets</b><small>Trazabilidad y salidas</small></span><span class="np-module-arrow">›</span></div>
+  <div class="np-module" onclick="npGo(function(){abrirPalets()})"><span class="np-module-icon">▣</span><span class="np-module-main"><b>Palets</b><small>Trazabilidad y Packing Lists</small></span><span class="np-module-arrow">›</span></div>
   <div class="np-module" onclick="npGo(function(){openProduccionModal()})"><span class="np-module-icon">▥</span><span class="np-module-main"><b>Producción / Stock</b><small>Lotes y existencias</small></span><span class="np-module-arrow">›</span></div>
   <div class="np-module" onclick="npGo(function(){abrirMaterialesDirecto()})"><span class="np-module-icon">◇</span><span class="np-module-main"><b>Materiales</b><small>Materias y consumos</small></span><span class="np-module-arrow">›</span></div>
   <div class="np-sec">ADMINISTRACIÓN</div>
@@ -112,7 +112,7 @@
   <div class="operator-actions-grid">
     <button class="operator-action operator-action-primary" onclick="operadorNuevoPedido()"><span class="operator-action-icon">＋</span><span><b>Nuevo pedido</b><small>Registrar una expedición</small></span></button>
     <button class="operator-action" onclick="operadorNuevoPalet()"><span class="operator-action-icon">▣</span><span><b>Crear palet</b><small>Guardar y etiquetar</small></span></button>
-    <button class="operator-action operator-action-load" onclick="operadorCargar()"><span class="operator-action-icon">🚚</span><span><b>Cargar pedido</b><small>Preparar la salida</small></span></button>
+    <button class="operator-action operator-action-load" onclick="operadorCargar()"><span class="operator-action-icon">🚚</span><span><b>Preparar Packing List</b><small>Seleccionar pedidos y carga</small></span></button>
     <button class="operator-action" onclick="operadorPicking()"><span class="operator-action-icon">🧺</span><span><b>Picking</b><small>Preparar cajas sueltas</small></span></button>
   </div>
   <div class="operator-secondary">
@@ -208,7 +208,7 @@
     <div><h2>▣ Palets / Trazabilidad</h2><small>Unidad logística · producción · stock · expedición</small></div>
     <div class="cp-p-spacer"></div>
     <button class="cp-p-btn yellow" onclick="cpNuevoPalet()">＋ Nuevo palet</button>
-    <button class="cp-p-btn primary" onclick="cpNuevaSalida()">🚚 Nueva salida</button>
+    <button class="cp-p-btn primary" onclick="cpNuevaSalida()">🚚 Nuevo Packing List</button>
     <button class="cp-p-btn" onclick="cerrarPalets()">✕</button>
   </div>
   <div class="cp-p-body">
@@ -264,19 +264,23 @@
 
 <div class="cp-p-modal" id="cpSalidaModal" onclick="if(event.target===this)cpCerrarSalida()">
   <div class="cp-p-box wide">
-    <div class="cp-p-mhead"><strong>🚚 Preparar / cargar salida</strong><div class="cp-p-spacer"></div><button class="cp-p-btn" onclick="cpCerrarSalida()">✕</button></div>
+    <div class="cp-p-mhead"><strong>🚚 Packing List · carga de camión</strong><div class="cp-p-spacer"></div><button class="cp-p-btn" onclick="cpCerrarSalida()">✕</button></div>
     <div class="cp-p-mscroll">
       <div class="cp-p-form">
-        <div class="cp-p-field"><label>Pedido</label><select id="cps-pedido" onchange="cpSalidaPedidoChange()"><option value="">Selecciona pedido</option></select></div>
+        <div class="cp-p-field"><label>Nº de carga</label><input id="cps-carga-num" type="number" min="1" step="1" value="1" placeholder="1"></div>
+        <div class="cp-p-field"><label>Añadir pedido al Packing List</label><div style="display:flex;gap:6px"><select id="cps-pedido-add" style="min-width:0;flex:1"><option value="">Selecciona pedido</option></select><button type="button" class="cp-p-btn" onclick="cpAnadirPedidoSalida()">＋ Añadir</button></div></div>
+        <div class="cp-p-field"><label>Pedido activo</label><select id="cps-pedido" onchange="cpSalidaPedidoChange()"><option value="">Añade un pedido</option></select></div>
         <div class="cp-p-field"><label>Cliente</label><input id="cps-cliente" readonly></div>
         <div class="cp-p-field"><label>Muelle</label><input id="cps-muelle"></div>
         <div class="cp-p-field"><label>Transportista</label><input id="cps-trans"></div>
         <div class="cp-p-field"><label>Tractora</label><input id="cps-tractora"></div>
         <div class="cp-p-field"><label>Remolque</label><input id="cps-remolque"></div>
       </div>
-      <div style="margin-top:14px;font-weight:800;font-size:13px">Preparación de mercancía</div>
+      <div style="margin-top:12px;font-weight:800;font-size:13px">Pedidos en esta carga</div>
+      <div id="cps-pedidos-carga" class="cp-p-selected" style="margin-top:7px"></div>
+      <div style="margin-top:14px;font-weight:800;font-size:13px">Preparación de mercancía del pedido activo</div>
       <div class="cp-p-note" style="margin-top:7px">El pedido puede combinar <b>palets completos</b> y <b>cajas sueltas (picking)</b>. El picking descuenta las cajas del palet origen sin darlo por cargado.</div>
-      <div class="cp-p-scanrow" style="margin-top:9px"><select id="cps-modo" onchange="cpModoSalidaChange()" style="min-width:170px"><option value="palet">📦 Palet completo</option><option value="picking">🧺 Picking · cajas sueltas</option></select><input id="cps-scan" placeholder="Escanea el palet y pulsa ENTER" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();cpEscanearEntrada(this.value);this.value=''}"><button class="cp-p-btn primary" onclick="cpAbrirCamara()">📷 Cámara</button><button class="cp-p-btn" onclick="cpCargarDisponibles()">Cargar palets</button></div>
+      <div class="cp-p-scanrow" style="margin-top:9px"><select id="cps-modo" onchange="cpModoSalidaChange()" style="min-width:170px"><option value="palet">📦 Palet completo</option><option value="picking">🧺 Picking · cajas sueltas</option></select><input id="cps-scan" placeholder="Escanea el palet del pedido y pulsa ENTER" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();cpEscanearEntrada(this.value);this.value=''}"><button class="cp-p-btn primary" onclick="cpAbrirCamara()">📷 Cámara</button><button class="cp-p-btn" onclick="cpCargarDisponibles()">Cargar palets</button></div>
       <div id="cps-info" class="cp-p-note" style="margin-top:9px">Selecciona un pedido para ver la mercancía pendiente.</div>
       <div id="cps-lista" class="cp-p-selected"></div>
       <div id="cps-picking" class="cp-p-selected" style="margin-top:8px"></div>
@@ -664,12 +668,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="js/00-watchdog.js?v=20261003-3"></script>
-<script src="js/01-app.js?v=20261003-3"></script>
+<script src="js/00-watchdog.js?v=20261003-4"></script>
+<script src="js/01-app.js?v=20261003-4"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"7f7b0fd8732c4326aae4b9d58d5c514a","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 
-<script src="js/02-navigation.js?v=20261003-3"></script>
+<script src="js/02-navigation.js?v=20261003-4"></script>
 
-<script src="js/03-palets.js?v=20261003-3"></script>
+<script src="js/03-palets.js?v=20261003-4"></script>
 </body>
 </html>

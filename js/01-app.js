@@ -1,6 +1,6 @@
 // La apiKey web de Firebase no es un secreto por diseño; la protección real está en reglas Firestore/App Check.
 // Estado compartido entre los módulos clásicos cargados por index.html.
-var db=null, col=null, colMov=null, colProd=null, colMat=null, colRecetas=null, colMovMat=null, colMovProd=null, colPalets=null, colSalidasPalets=null, colMovLogistica=null;
+var db=null, auth=null, currentUser=null, col=null, colMov=null, colProd=null, colMat=null, colRecetas=null, colMovMat=null, colMovProd=null, colPalets=null, colSalidasPalets=null, colMovLogistica=null;
 try {
   if(typeof firebase==='undefined') throw new Error('SDK Firebase no cargado');
   if(!firebase.apps?.length) firebase.initializeApp({
@@ -11,6 +11,7 @@ try {
     messagingSenderId: "449154412431",
     appId: "1:449154412431:web:cfd5619d5816c649e965fa"
   });
+  auth=firebase.auth();
   db=firebase.firestore();
   col=db.collection('pedidos'); colMov=db.collection('movimientos_palets'); colProd=db.collection('produccion');
   colMat=db.collection('materiales'); colRecetas=db.collection('recetas'); colMovMat=db.collection('movimientos_materiales');
@@ -22,25 +23,14 @@ try {
   if(ls){ const t=ls.querySelector('.loading-txt'); if(t)t.textContent='No se pudo iniciar Firebase. Comprueba la conexión/configuración y recarga.'; }
 }
 
-// ══ LOGIN ══ (sin pantalla de login en el HTML: bloque a prueba de nulos, ya no aborta el script)
+// ══ AUTENTICACIÓN REAL ══
 (function(){
-  const SESSION_KEY = 'cp_auth_v1';
-  const $ = id => document.getElementById(id);
-  const ocultarLogin = () => { const o = $('loginOverlay'); if(o) o.style.display = 'none'; };
-  if(sessionStorage.getItem(SESSION_KEY) === 'ok') ocultarLogin();
-  window.doLogin = function(){
-    const uEl = $('loginUser'), pEl = $('loginPass'), err = $('loginError');
-    if(!uEl || !pEl) return;
-    const u = uEl.value.trim().toUpperCase();
-    if(u === 'JOSE' && pEl.value === 'expedicion2026'){
-      sessionStorage.setItem(SESSION_KEY,'ok');
-      ocultarLogin();
-      if(err) err.style.display = 'none';
-    } else {
-      if(err) err.style.display = 'block';
-      pEl.value = ''; pEl.focus();
-    }
-  };
+  const $=id=>document.getElementById(id);
+  const showLogin=(msg='')=>{const o=$('loginOverlay');if(o)o.style.display='flex';const e=$('loginError');if(e){e.textContent=msg;e.style.display=msg?'block':'none';}};
+  const hideLogin=()=>{const o=$('loginOverlay');if(o)o.style.display='none';};
+  window.doLogin=async function(){const u=$('loginUser'),p=$('loginPass'),e=$('loginError');if(!auth||!u||!p)return;if(e){e.textContent='';e.style.display='none';}try{await auth.signInWithEmailAndPassword(u.value.trim(),p.value);p.value='';}catch(err){console.error('Firebase Auth:',err);if(e){e.textContent='Correo o contraseña incorrectos.';e.style.display='block';}p.value='';p.focus();}};
+  window.doLogout=async function(){if(auth)await auth.signOut();};
+  window._cpShowLogin=showLogin;window._cpHideLogin=hideLogin;
 })();
 
 // MAYÚSCULAS solo en campos marcados explícitamente.
@@ -74,7 +64,7 @@ var movimientosMat = [];
 var movimientosProd = [];
 var palets = [];
 var salidasPalets = [];
-if (db) {
+function startReferenceListeners(){ if (!db) return;
 colProd.onSnapshot((snap) => {
   producciones = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
@@ -407,7 +397,7 @@ const _loadTimeout = setTimeout(() => {
   toast('⚠️ No se pudo conectar. Comprueba la conexión.');
 }, 8000);
 
-if (db) col.onSnapshot((snapshot) => {
+function startPedidoListener(){ if (!db) return; col.onSnapshot((snapshot) => {
   clearTimeout(_loadTimeout);
   pedidos = snapshot.docs.map(d => cpNormalizePedido({ ...d.data(), id: d.id }));
   // Ordenación: con número → por nº asc; sin número → al final por creación asc (último creado abajo)
@@ -460,6 +450,15 @@ if (db) col.onSnapshot((snapshot) => {
     ls.onclick = () => location.reload();
   }
   toast('⚠️ Sin conexión a la nube');
+});
+}
+
+// Las suscripciones se inician solo después de autenticar al usuario.
+if (auth) auth.onAuthStateChanged(user=>{
+  currentUser=user;
+  const label=document.getElementById('authUser');
+  if(user){if(label)label.textContent=user.email||'';window._cpHideLogin?.();if(!window._cpListenersStarted){window._cpListenersStarted=true;startReferenceListeners();startPedidoListener();}}
+  else{if(label)label.textContent='';hideLoadingScreen();window._cpShowLogin?.();}
 });
 
 async function fbSave(p) {

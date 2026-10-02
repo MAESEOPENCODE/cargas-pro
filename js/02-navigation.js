@@ -100,7 +100,13 @@
   // Panel de navegación
   window.npToggle = function (force) {
     const p = $('navPane'); if (!p) return;
-    p.classList.toggle('open', typeof force === 'boolean' ? force : !p.classList.contains('open'));
+    const open = typeof force === 'boolean' ? force : !p.classList.contains('open');
+    p.classList.toggle('open', open);
+    // Refuerzo inline para que el menú funcione aunque GitHub Pages conserve CSS en caché.
+    p.style.display = open ? 'block' : '';
+    p.style.transform = open ? 'translateX(0)' : '';
+    const scrim = document.querySelector('.np-scrim');
+    if (scrim) scrim.style.display = open ? 'block' : '';
   };
   window.npGo = function (fn) {
     npToggle(false);

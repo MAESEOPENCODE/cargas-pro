@@ -73,7 +73,7 @@
     const line=cpPedidoLineaOptions(p)[0];
     const sourceLine=line?.idx==='main'?p:(p?.productosExtra||[])[parseInt(line?.idx)];
     if(!p){
-      ['cpf-cliente','cpf-ref','cpf-pais'].forEach(id=>{if($(id))$(id).value='';});
+      ['cpf-cliente','cpf-ref','cpf-pais','cpf-lote','cpf-cad'].forEach(id=>{if($(id))$(id).value='';});
       if($('cpf-producto')) $('cpf-producto').readOnly=false;
       if($('cpf-formato')) $('cpf-formato').readOnly=false;
       return;
@@ -84,6 +84,12 @@
     $('cpf-formato').value=up(line?.formato||p.formato||'');
     $('cpf-ref').value=up(line?.ref||p.ref||'');
     $('cpf-pais').value=up(line?.pais||p.pais||'');
+    // Si el pedido está asignado a una producción, copiar sus datos de trazabilidad.
+    // Los campos quedan editables por si el palet físico cambia de lote o caducidad.
+    const prodRef=line?.ref && /^P-/i.test(line.ref) ? line.ref : (line?.idx==='main' ? p.prodRef||'' : '');
+    const prod=prodRef ? (window.producciones||[]).find(x=>String(x.numProd||'')===String(prodRef)) : null;
+    $('cpf-lote').value=prod?.lote||'';
+    $('cpf-cad').value=prod?.caducidad||'';
     // Cantidades y datos logísticos se copian del pedido, pero se dejan editables para ajustar el palet físico.
     $('cpf-cajas').value=parseInt(sourceLine?.cajas)||0;
     $('cpf-cpp').value=parseInt(sourceLine?.cpp||sourceLine?.cajasPorPalet)||0;
@@ -205,7 +211,7 @@
     const producto=mixed?'MIXTO':up($('cpf-producto').value); if(!producto){toast('⚠️ Indica el producto');return;}
     const sscc=String($('cpf-sscc').value||'').replace(/\D/g,''); if(sscc && sscc.length!==18){toast('⚠️ El SSCC debe tener 18 dígitos');return;}
     const cajas=mixed?contenido.reduce((a,c)=>a+c.cajas,0):(parseInt($('cpf-cajas').value)||0), unidades=mixed?1:(parseInt($('cpf-unidades').value)||0), cpp=parseInt($('cpf-cpp').value)||0;
-    const base={pedidoId:p?.id||'',pedidoNum:p?.num||'',cliente:up(p?.grupo||''),producto,formato:mixed?'MIXTO':up($('cpf-formato').value),referencia:up($('cpf-ref').value),pais:up($('cpf-pais').value),tipo:up($('cpf-tipo').value),lote:up($('cpf-lote').value),caducidad:$('cpf-cad').value||'',ubicacion:up($('cpf-ubicacion').value),cajas,cajasPorPalet:cpp,unidades,unidadesTipo:up($('cpf-utipo').value)||'UDS',pesoKg:parseFloat($('cpf-peso').value)||0,sscc,notas:up($('cpf-notas').value),...(mixed?{contenido,mixed:true}:{}),estado:'disponible',source:'manual',createdAt:firebase.firestore.FieldValue.serverTimestamp(),createdIso:nowISO()};
+    const base={pedidoId:p?.id||'',pedidoNum:p?.num||'',cliente:up(p?.grupo||''),producto,formato:mixed?'MIXTO':up($('cpf-formato').value),referencia:up($('cpf-ref').value),prodRef:up(line?.ref||p?.prodRef||''),pais:up($('cpf-pais').value),tipo:up($('cpf-tipo').value),lote:up($('cpf-lote').value),caducidad:$('cpf-cad').value||'',ubicacion:up($('cpf-ubicacion').value),cajas,cajasPorPalet:cpp,unidades,unidadesTipo:up($('cpf-utipo').value)||'UDS',pesoKg:parseFloat($('cpf-peso').value)||0,sscc,notas:up($('cpf-notas').value),...(mixed?{contenido,mixed:true}:{}),estado:'disponible',source:'manual',createdAt:firebase.firestore.FieldValue.serverTimestamp(),createdIso:nowISO()};
     if(p) base.pedidoCliente=up(p.grupo||''); let id='';
     try{ await withPalletIds(1,async(tx,ids)=>{ id=ids[0]; const data={...base,id}; tx.set(colPalets.doc(id),data); tx.set(colMovLogistica.doc(),{paletId:id,accion:'creado',estado:'disponible',ts:Date.now(),fecha:nowISO(),detalle:'Alta de unidad logística',pedidoId:data.pedidoId||'',pedidoNum:data.pedidoNum||''}); });
       cpCerrarPalForm(); cpRenderPalets(); toast('✅ Palet '+id+' creado'); setTimeout(()=>cpImprimirEtiqueta(id),250);

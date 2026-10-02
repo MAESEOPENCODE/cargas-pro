@@ -93,9 +93,20 @@ var movimientosMat = [];
 var movimientosProd = [];
 var palets = [];
 var salidasPalets = [];
+function _dedupeProducciones(rows){
+  const m=new Map();
+  rows.forEach(l=>{
+    const art=(l.articulo||'').trim().toUpperCase(), fmt=(l.formato||'').trim().toUpperCase();
+    const key=l.numProd ? `prod:${l.numProd}|${art}|${fmt}` : `doc:${l.id}`;
+    const prev=m.get(key);
+    const ts=x=>Number(x.updatedAtMs||x.createdAt||0);
+    if(!prev || ts(l)>=ts(prev)) m.set(key,l);
+  });
+  return [...m.values()];
+}
 function startReferenceListeners(){ if (!db) return;
 colProd.onSnapshot((snap) => {
-  producciones = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  producciones = _dedupeProducciones(snap.docs.map(d => ({ ...d.data(), id: d.id })));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
   render(); // por si hay avisos de stock visibles en el formulario abierto
@@ -2255,17 +2266,23 @@ async function guardarProduccion(){
     notas: document.getElementById('pr-notas').value.trim().toUpperCase(),
     createdAt: prev ? (prev.createdAt||Date.now()) : Date.now()
   };
-  const deltaCajasMat = _cajasEq(lote) - _cajasEq(prev);
-  // La producción encajada y sus palets físicos se guardan/reconcilian juntos.
-  // Al editar cantidades, el mismo flujo ajusta palets disponibles y anula los sobrantes.
-  if (lote.fase==='encajado') await cpCrearPaletsDeProduccion(lote);
-  else await fbSaveProduccion(lote);
-  if (deltaCajasMat) await consumirMateriales(lote.articulo, lote.formato, deltaCajasMat);
-  await registrarMovProduccion(lote, prev?'editado':'creado', _descLote(lote));
+  if (_guardandoProduccion) { toast('⏳ La producción ya se está guardando'); return; }
+  _guardandoProduccion = true;
+  try {
+    const deltaCajasMat = _cajasEq(lote) - _cajasEq(prev);
+    // La producción encajada y sus palets físicos se guardan/reconcilian juntos.
+    // Al editar cantidades, el mismo flujo ajusta palets disponibles y anula los sobrantes.
+    if (lote.fase==='encajado') await cpCrearPaletsDeProduccion(lote);
+    else await fbSaveProduccion(lote);
+    if (deltaCajasMat) await consumirMateriales(lote.articulo, lote.formato, deltaCajasMat);
+    await registrarMovProduccion(lote, prev?'editado':'creado', _descLote(lote));
   ['pr-marca','pr-formato','pr-palets','pr-cajas','pr-cpp','pr-bpu','pr-totbot','pr-bpb','pr-bpp','pr-pb','pr-bs','pr-bi','pr-bri','pr-bpc','pr-cppb','pr-totbricks','pr-totbotellas','pr-lote','pr-caducidad','pr-peso','pr-notas'].forEach(id=>{const el=document.getElementById(id); if(el) el.value='';});
-  toast(prev ? '💾 Lote actualizado' : '🏭 Producción '+lote.numProd+' registrada'); _setModoEdicion(null);
-  if(!prev && !(_esFases(lote) && lote.fase!=='encajado')) preguntarPedidosLote(lote);
-  _prArt = _keyArt(lote); prIr('detalle');
+    toast(prev ? '💾 Lote actualizado' : '🏭 Producción '+lote.numProd+' registrada'); _setModoEdicion(null);
+    if(!prev && !(_esFases(lote) && lote.fase!=='encajado')) preguntarPedidosLote(lote);
+    _prArt = _keyArt(lote); prIr('detalle');
+  } finally {
+    _guardandoProduccion = false;
+  }
 }
 window.guardarProduccion = guardarProduccion;
 

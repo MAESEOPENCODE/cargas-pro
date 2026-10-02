@@ -3309,3 +3309,20 @@ async function ejecutarVaciadoDatosApp() {
 })();
 
 window.repararApp = repararApp;
+
+// Refuerzo del menú móvil: abre el panel aunque exista CSS antiguo en caché.
+(function(){
+  const btn=document.querySelector('.hamb');
+  const panel=document.getElementById('navPane');
+  const scrim=document.querySelector('.np-scrim');
+  if(!btn||!panel)return;
+  btn.onclick=function(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+    const open=!panel.classList.contains('open');
+    panel.classList.toggle('open',open);
+    panel.style.setProperty('display',open?'block':'none','important');
+    panel.style.setProperty('transform',open?'translateX(0)':'translateX(-102%)','important');
+    if(scrim)scrim.style.setProperty('display',open?'block':'none','important');
+  };
+})();

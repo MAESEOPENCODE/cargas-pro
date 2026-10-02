@@ -33,6 +33,20 @@
   <div class="loading-txt">Conectando...</div>
 </div>
 
+<!-- AUTENTICACIÓN REAL -->
+<div id="loginOverlay" class="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <form class="auth-card" onsubmit="event.preventDefault(); doLogin();">
+    <div class="auth-logo">Cargas<span>Pro</span></div>
+    <h1 id="loginTitle">Acceso a la aplicación</h1>
+    <p>Introduce tu cuenta autorizada para continuar.</p>
+    <label for="loginUser">Correo electrónico</label>
+    <input id="loginUser" type="email" autocomplete="username" placeholder="usuario@empresa.com" required>
+    <label for="loginPass">Contraseña</label>
+    <input id="loginPass" type="password" autocomplete="current-password" placeholder="Contraseña" required>
+    <div id="loginError" class="auth-error" role="alert"></div>
+    <button type="submit" class="auth-submit">Entrar</button>
+  </form>
+</div>
 <!-- HEADER -->
 <header>
   <button class="hamb" onclick="npToggle()" aria-label="Menú"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
@@ -48,6 +62,7 @@
   <div class="crumbs" id="crumbs"></div>
   <div class="header-right">
     <div class="today-badge" id="todayDate">— <span class="sync-dot saving" id="syncDot"></span></div>
+    <span id="authUser" class="auth-user"></span><button id="btnLogout" class="auth-logout" onclick="doLogout()" type="button">Salir</button>
     <input type="file" id="importJsonInput" accept=".json" style="display:none" onchange="importarJSON(event)">
   </div>
 </header>
@@ -648,6 +663,7 @@
 <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="js/00-watchdog.js"></script>
 <script src="js/01-app.js"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"7f7b0fd8732c4326aae4b9d58d5c514a","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>

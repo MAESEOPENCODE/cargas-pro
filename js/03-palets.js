@@ -75,6 +75,7 @@
     });
     return base.concat([...der.values()]);
   }
+  function cpSiguienteNumCarga(){ return cpSalidasAll().reduce((m,s)=>Math.max(m,parseInt(s.cargaNumero)||0),0)+1; }
   window.cpPalTab=function(t){
     const packs=t==='packs';
     if($('cpPanelPalets'))$('cpPanelPalets').style.display=packs?'none':'';
@@ -325,7 +326,7 @@
   window.cpMoverPaletSalida=function(i,d){ const j=i+d; if(j<0||j>=salidaPalets.length)return; [salidaPalets[i],salidaPalets[j]]=[salidaPalets[j],salidaPalets[i]]; cpRenderSalidaList(); };
   window.cpActivarPedidoSalida=function(id){ cpGuardarPreparacionActiva(); salidaPedidoActivo=String(id); cpCargarPreparacion(id); $('cps-pedido').value=id; cpRenderPedidosCarga(); cpSalidaPedidoChange(true); };
   window.cpQuitarPedidoSalida=function(id){ cpGuardarPreparacionActiva(); salidaPedidos=salidaPedidos.filter(x=>String(x)!==String(id)); salidaPorPedido.delete(String(id)); if(String(salidaPedidoActivo)===String(id)){salidaPedidoActivo=salidaPedidos[0]||'';cpCargarPreparacion(salidaPedidoActivo);$('cps-pedido').value=salidaPedidoActivo;} cpRenderPedidosCarga(); cpSalidaPedidoChange(true); };
-  window.cpNuevaSalida=function(){ salidaPalets=[]; salidaPicking=[]; salidaPedidos=[]; salidaPedidoActivo=''; salidaPorPedido=new Map(); salidaCargaId='C'+Date.now().toString(36).toUpperCase(); cpPedidoOptions('cps-pedido-add',false); $('cps-pedido').innerHTML='<option value="">Añade un pedido</option>'; ['cps-cliente','cps-muelle','cps-trans','cps-tractora','cps-remolque'].forEach(id=>$(id).value=''); if($('cps-carga-num'))$('cps-carga-num').value=String((parseInt(localStorage.getItem('cargasProUltimaCarga')||'0')||0)+1); if($('cps-modo'))$('cps-modo').value='palet'; cpRenderPedidosCarga(); $('cps-info').textContent='Añade uno o varios pedidos para preparar la carga.'; $('cps-lista').innerHTML=''; $('cps-picking').innerHTML=''; $('cpSalidaModal').classList.add('open'); cpModoSalidaChange(); setTimeout(()=>$('cps-pedido-add')?.focus(),100); };
+  window.cpNuevaSalida=function(){ salidaPalets=[]; salidaPicking=[]; salidaPedidos=[]; salidaPedidoActivo=''; salidaPorPedido=new Map(); salidaCargaId='C'+Date.now().toString(36).toUpperCase(); cpPedidoOptions('cps-pedido-add',false); $('cps-pedido').innerHTML='<option value="">Añade un pedido</option>'; ['cps-cliente','cps-muelle','cps-trans','cps-tractora','cps-remolque'].forEach(id=>$(id).value=''); if($('cps-carga-num'))$('cps-carga-num').value=String(cpSiguienteNumCarga()); if($('cps-modo'))$('cps-modo').value='palet'; cpRenderPedidosCarga(); $('cps-info').textContent='Añade uno o varios pedidos para preparar la carga.'; $('cps-lista').innerHTML=''; $('cps-picking').innerHTML=''; $('cpSalidaModal').classList.add('open'); cpModoSalidaChange(); setTimeout(()=>$('cps-pedido-add')?.focus(),100); };
   window.cpCerrarSalida=function(){ $('cpSalidaModal').classList.remove('open'); salidaPalets=[]; salidaPicking=[]; };
   window.cpSalidaPedidoChange=function(fromState){
     if(!fromState) cpGuardarPreparacionActiva();

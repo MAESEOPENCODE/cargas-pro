@@ -139,6 +139,7 @@ colPalets.limit(CP_STOCK_LIMIT).onSnapshot((snap)=>{
 },(err)=>console.error('Firestore palets:',err));
 colSalidasPalets.limit(CP_HISTORY_LIMIT).onSnapshot((snap)=>{
   salidasPalets = snap.docs.map(d=>({...d.data(),id:d.id}));
+  if(document.getElementById('cpPackingView')?.style.display!=='none' && document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPackingLists();
 },(err)=>console.error('Firestore salidas palets:',err));
 }
 

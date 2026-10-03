@@ -13,6 +13,7 @@
   let salidaPedidoActivo = '';
   let salidaPorPedido = new Map();
   let salidaCargaId = '';
+  let cpPaletsVista = 'palets';
   let cpEditPaletId = '';
   function cpGuardarPreparacionActiva(){ if(salidaPedidoActivo) salidaPorPedido.set(String(salidaPedidoActivo),{palets:[...salidaPalets],picking:JSON.parse(JSON.stringify(salidaPicking))}); }
   function cpCargarPreparacion(id){ const v=salidaPorPedido.get(String(id))||{palets:[],picking:[]}; salidaPalets=[...(v.palets||[])]; salidaPicking=JSON.parse(JSON.stringify(v.picking||[])); }
@@ -26,9 +27,10 @@
   window.abrirPalets = function(opciones={}){
     $('cpPaletsScreen').classList.add('open');
     document.body.style.overflow='hidden';
+    cpPaletsVista='palets'; $('cpPackingView').style.display='none'; $('cpPaletsView').style.display='';
     if($('cpPalEstado') && Object.prototype.hasOwnProperty.call(opciones,'estado')) $('cpPalEstado').value=opciones.estado||'';
     cpRenderPalets();
-    if(opciones.vista==='salida') setTimeout(()=>cpNuevaSalida(),80);
+    if(opciones.vista==='salida') setTimeout(()=>cpAbrirPackingLists(),80);
   };
   window.cerrarPalets = function(){ $('cpPaletsScreen').classList.remove('open'); document.body.style.overflow=''; cpCerrarCamara(); };
 
@@ -64,6 +66,44 @@
     const el=$('cpPalEstado'); if(el) el.value=estado||'';
     cpRenderPalets();
   };
+
+  function cpSalidaFecha(x){const v=x?.confirmedAt||x?.createdAt;return v?.seconds?new Date(v.seconds*1000).toLocaleString('es-ES'):(v?new Date(v).toLocaleString('es-ES'):'—');}
+  window.cpAbrirPackingLists=function(){cpPaletsVista='salidas';$('cpPaletsView').style.display='none';$('cpPackingView').style.display='';cpRenderPackingLists();};
+  window.cpVolverPalets=function(){cpPaletsVista='palets';$('cpPackingView').style.display='none';$('cpPaletsView').style.display='';cpRenderPalets();};
+  function cpPackingGroups(){
+    const groups=new Map();
+    (salidasPalets||[]).forEach(x=>{const key=String(x.cargaId||x.id);if(!groups.has(key))groups.set(key,{key,items:[],palets:[],picking:[]});const g=groups.get(key);g.items.push(x);(x.palets||[]).forEach(id=>{if(!g.palets.includes(id))g.palets.push(id);});g.picking.push(...(x.picking||[]));});
+    return [...groups.values()].map(g=>{const first=g.items[0]||{},ordenados=g.items.slice().sort((a,b)=>(a.ordenPedido||999)-(b.ordenPedido||999));const secuencia=ordenados.flatMap(x=>(x.secuenciaCarga||[...(x.palets||[]).map((id,i)=>({orden:i+1,tipo:'palet',paletId:id})),...(x.picking||[]).map((p,i)=>({orden:(x.palets||[]).length+i+1,tipo:'picking',paletId:p.paletId,cajas:p.cajas}))]).map(s=>({...s,pedidoNum:x.pedidoNum||x.pedidoId||'',cliente:x.cliente||'',ordenPedido:x.ordenPedido||999}))).sort((a,b)=>a.ordenPedido-b.ordenPedido||a.orden-b.orden);return {...g,first,clientes:[...new Set(g.items.map(x=>x.cliente).filter(Boolean))],pedidos:ordenados.map(x=>x.pedidoNum||x.pedidoId).filter(Boolean),estado:[...new Set(g.items.map(x=>x.estado).filter(Boolean))].join(' / ')||'—',secuencia,fecha:g.items.slice().sort((a,b)=>createdValue(b.confirmedAt||b.createdAt)-createdValue(a.confirmedAt||a.createdAt))[0]};});
+  }
+  window.cpRenderPackingLists=function(){
+    const q=up($('cpPackingBusca')?.value),st=$('cpPackingEstado')?.value||'';
+    const rows=cpPackingGroups().filter(g=>{if(st&&!g.items.some(x=>String(x.estado||'')===st))return false;const txt=[g.key,g.first.cargaNumero,g.pedidos.join(' '),g.clientes.join(' '),g.items.map(x=>[x.muelle,x.transportista,x.tractora,x.remolque].join(' ')).join(' ')].join(' ').toUpperCase();return !q||txt.includes(q);}).sort((a,b)=>createdValue(b.fecha.confirmedAt||b.fecha.createdAt)-createdValue(a.fecha.confirmedAt||a.fecha.createdAt));
+    const el=$('cpPackingLista');if(!el)return;
+    el.innerHTML=rows.length?`<table><thead><tr><th>Packing List</th><th>Carga</th><th>Pedidos en orden</th><th>Clientes</th><th>Palets</th><th>Picking</th><th>Muelle / transporte</th><th>Fecha</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows.map(g=>{const pk=g.picking.reduce((a,p)=>a+(parseInt(p.cajas)||0),0),log=[...new Set(g.items.flatMap(x=>[x.muelle,x.transportista,x.tractora,x.remolque].filter(Boolean)))].join(' · ');return `<tr><td><b class="cp-p-code">${esc(g.key)}</b></td><td>${esc(g.first.cargaNumero||g.key)}</td><td>${esc(g.pedidos.map((p,i)=>(i+1)+'. '+p).join(' · ')||'—')}</td><td>${esc(g.clientes.join(' · ')||'—')}</td><td>${g.palets.length}</td><td>${pk?pk+' cajas':'—'}</td><td>${esc(log||'—')}</td><td>${esc(cpSalidaFecha(g.fecha))}</td><td><span class="cp-p-status ${esc(g.first.estado||'')}">${esc(g.estado)}</span></td><td><button class="cp-p-btn" onclick="cpVerPackingList('${esc(g.key)}')">Ver detalle</button></td></tr>`;}).join('')}</tbody></table>`:'<div style="padding:35px;text-align:center;color:#7a8794">Todavía no hay Packing Lists creados.</div>';
+  };
+  window.cpVerPackingList=function(id){
+    const g=cpPackingGroups().find(v=>String(v.key)===String(id));if(!g)return;const x=g.first;
+    const pd=g.palets.map(id=>palets.find(p=>String(p.id)===String(id))||{id}).map(p=>`<tr><td>${esc(p.id)}</td><td>${esc(p.producto||'')}</td><td>${esc(p.cajas||0)}</td><td>${esc(p.lote||'—')}</td><td>${esc(p.ubicacion||'—')}</td></tr>`).join('');
+    const kd=g.picking.map(p=>`<tr><td>${esc(p.paletId||'')}</td><td>${esc(p.producto||'')}</td><td>${esc(p.cajas||0)}</td><td>${esc(p.lote||'—')}</td></tr>`).join('');
+    const log=[...new Set(g.items.flatMap(v=>[v.muelle,v.transportista,v.tractora,v.remolque].filter(Boolean)))].join(' · ');
+    const ordenHtml=g.secuencia.map((s,i)=>`<tr><td><b>${i+1}</b></td><td>${esc(s.cliente)}</td><td>${esc(s.pedidoNum)}</td><td>${esc(s.tipo==='picking'?'Picking':'Palet completo')}</td><td>${esc(s.paletId||'')}</td><td>${esc(s.cajas||'—')}</td></tr>`).join('');
+    $('cpPackingDetalle').innerHTML=`<div class="cp-p-note"><b>${esc(g.key)}</b> · Carga ${esc(x.cargaNumero||g.key)} · ${esc(g.estado)}<br>Pedidos: <b>${esc(g.pedidos.map((p,i)=>(i+1)+'. '+p).join(' · ')||'—')}</b><br>Clientes: <b>${esc(g.clientes.join(' · ')||'—')}</b><br>Fecha: ${esc(cpSalidaFecha(g.fecha))} · Logística: ${esc(log||'—')}<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="cp-p-btn primary" onclick="cpImprimirPicking('${esc(g.key)}','resumido')">🖨️ Picking resumido</button><button class="cp-p-btn" onclick="cpImprimirPicking('${esc(g.key)}','detallado')">🖨️ Picking detallado</button></div></div><h3>Orden de carga</h3><table><thead><tr><th>Orden</th><th>Cliente</th><th>Pedido</th><th>Tipo</th><th>Palet</th><th>Cajas</th></tr></thead><tbody>${ordenHtml||'<tr><td colspan="6">Sin secuencia registrada</td></tr>'}</tbody></table><h3>Palets completos (${g.palets.length})</h3><table><thead><tr><th>Palet</th><th>Producto</th><th>Cajas</th><th>Lote</th><th>Ubicación</th></tr></thead><tbody>${pd||'<tr><td colspan="5">Ninguno</td></tr>'}</tbody></table><h3>Picking (${g.picking.reduce((a,p)=>a+(parseInt(p.cajas)||0),0)} cajas)</h3><table><thead><tr><th>Palet origen</th><th>Producto</th><th>Cajas</th><th>Lote</th></tr></thead><tbody>${kd||'<tr><td colspan="4">Ninguno</td></tr>'}</tbody></table>`;
+    $('cpPackingDetailModal').classList.add('open');
+  };
+  window.cpImprimirPicking=function(id,modo='detallado'){
+    const g=cpPackingGroups().find(v=>String(v.key)===String(id));if(!g)return;
+    const lineas=g.picking.map((p,i)=>{const item=g.items.find(x=>(x.picking||[]).some(y=>String(y.id||'')===String(p.id||'')))||g.items.find(x=>String(x.pedidoId)===String(p.pedidoId))||{};return {...p,orden:i+1,cliente:item.cliente||'',pedidoNum:item.pedidoNum||p.pedidoNum||p.pedidoId||''};});
+    const title=modo==='resumido'?'Picking resumido':'Picking detallado';
+    let rows='';
+    if(modo==='resumido'){
+      const m=new Map();lineas.forEach(p=>{const k=[p.cliente,p.pedidoNum,p.producto,p.formato].join('|');const v=m.get(k)||{...p,cajas:0};v.cajas+=(parseInt(p.cajas)||0);m.set(k,v);});
+      rows=[...m.values()].map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.cliente||'—')}</td><td>${esc(p.pedidoNum||'—')}</td><td>${esc(p.producto||'—')}</td><td>${esc(p.formato||'—')}</td><td><b>${esc(p.cajas)}</b></td></tr>`).join('');
+    }else rows=lineas.map(p=>`<tr><td>${p.orden}</td><td>${esc(p.cliente||'—')}</td><td>${esc(p.pedidoNum||'—')}</td><td>${esc(p.paletId||'—')}</td><td>${esc(p.producto||'—')}</td><td>${esc(p.formato||'—')}</td><td>${esc(p.lote||'—')}</td><td>${esc(p.caducidad||'—')}</td><td><b>${esc(p.cajas||0)}</b></td></tr>`).join('');
+    const head=modo==='resumido'?'<th>#</th><th>Cliente</th><th>Pedido</th><th>Producto</th><th>Formato</th><th>Cajas</th>':'<th>Orden</th><th>Cliente</th><th>Pedido</th><th>Palet origen</th><th>Producto</th><th>Formato</th><th>Lote</th><th>Caducidad</th><th>Cajas</th>';
+    const w=window.open('','_blank','width=1100,height=750');if(!w){toast('⚠️ El navegador bloqueó la ventana de impresión');return;}
+    w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)} · ${esc(g.key)}</title><style>body{font-family:Arial,sans-serif;color:#172b3a;margin:18mm;font-size:11px}h1{font-size:20px;margin:0 0 4px}h2{font-size:13px;margin:0 0 14px;color:#526879}.meta{line-height:1.6;border:1px solid #ccd7df;padding:9px;margin-bottom:14px}table{width:100%;border-collapse:collapse}th{background:#eaf1f8;text-align:left;font-size:10px}th,td{border:1px solid #ccd7df;padding:6px}td:last-child{text-align:right}@media print{@page{size:A4 landscape;margin:10mm}body{margin:0}}</style></head><body><h1>${esc(title)}</h1><h2>${esc(g.key)} · Carga ${esc(g.first.cargaNumero||g.key)}</h2><div class="meta"><b>Clientes:</b> ${esc(g.clientes.join(' · ')||'—')}<br><b>Pedidos:</b> ${esc(g.pedidos.join(' · ')||'—')}<br><b>Fecha:</b> ${esc(cpSalidaFecha(g.fecha))} · <b>Logística:</b> ${esc([...new Set(g.items.flatMap(x=>[x.muelle,x.transportista,x.tractora,x.remolque].filter(Boolean)))].join(' · ')||'—')}<br><b>Total picking:</b> ${g.picking.reduce((a,p)=>a+(parseInt(p.cajas)||0),0)} cajas</div><table><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${modo==='resumido'?6:9}">No hay picking en esta carga.</td></tr>`}</tbody></table><script>setTimeout(()=>window.print(),180)<\/script></body></html>`);w.document.close();
+  };
+  window.cpCerrarPackingDetalle=function(){$('cpPackingDetailModal').classList.remove('open');};
 
   function cpPedidoLineaOptions(p){
     const lines=[{idx:'main',producto:p?.producto||'',formato:p?.formato||'',ref:p?.prodRef||p?.ref||'',pais:p?.pais||''},...(p?.productosExtra||[]).map((x,i)=>({idx:String(i),producto:x.producto||'',formato:x.formato||'',ref:x.prodRef||'',pais:x.pais||p?.pais||''}))];
@@ -345,6 +385,7 @@
     const pickingLocal=salidaPicking.filter(r=>(parseInt(r.cajas)||0)>0); if(salidaPicking.length!==pickingLocal.length){toast('⚠️ Indica las cajas a extraer en todos los palets de picking o elimínalos');return;}
     const ts=Date.now(); const sid=salidaCargaId ? (salidaCargaId+'-'+String(p.id)) : ('S'+ts.toString(36).toUpperCase()); const ids=[...new Set(salidaPalets)];
     const muelle=up($('cps-muelle').value), transportista=up($('cps-trans').value), tractora=up($('cps-tractora').value), remolque=up($('cps-remolque').value);
+    const ordenPedido=Math.max(1,salidaPedidos.findIndex(id=>String(id)===String(p.id))+1);
     // Firestore Compat no admite tx.get(query); tomamos esta instantánea antes de la transacción.
     const loadedSnap=await colPalets.where('pedidoId','==',String(p.id)).where('estado','==','cargado').get();
     const loadedBefore=loadedSnap.docs.map(d=>d.data());
@@ -368,7 +409,8 @@
       const done=lineas.length>0&&lineas.every(l=>(l.uds<=0||l.cu>=l.uds)&&(l.cajas<=0||l.cc>=l.cajas));
       if(!done) throw new Error('El pedido '+(current.num||current.id)+' debe cargarse completo: incluye todos sus artículos y cajas');
       const now=nowISO();
-      const salida={id:sid,cargaId:salidaCargaId||sid,cargaNumero:parseInt($('cps-carga-num')?.value)||1,pedidoId:current.id,pedidoNum:current.num||'',cliente:up(current.grupo||''),palets:ids,picking:pickNew,estado:'cargado',muelle,transportista,tractora,remolque,createdAt:firebase.firestore.FieldValue.serverTimestamp(),confirmedAt:now};
+      const secuenciaCarga=[...ids.map((id,i)=>({orden:i+1,tipo:'palet',paletId:id,cajas:parseInt(byId.get(id)?.cajas)||0})),...pickNew.map((m,i)=>({orden:ids.length+i+1,tipo:'picking',paletId:m.paletId,cajas:m.cajas}))];
+      const salida={id:sid,cargaId:salidaCargaId||sid,cargaNumero:parseInt($('cps-carga-num')?.value)||1,ordenPedido,pedidoId:current.id,pedidoNum:current.num||'',cliente:up(current.grupo||''),palets:ids,picking:pickNew,secuenciaCarga,estado:'cargado',muelle,transportista,tractora,remolque,createdAt:firebase.firestore.FieldValue.serverTimestamp(),confirmedAt:now};
       for(const id of ids){const x=byId.get(id);const ref=colPalets.doc(id);tx.update(ref,{estado:'cargado',pedidoId:x.pedidoId||current.id,pedidoNum:x.pedidoNum||current.num||'',cliente:x.cliente||up(current.grupo||''),assignedAtLoad:!x.pedidoId,assignedAtLoadPedidoId:!x.pedidoId?current.id:'',salidaId:sid,loadedAt:firebase.firestore.FieldValue.serverTimestamp(),cargaInfo:{pedidoId:current.id,pedidoNum:current.num||'',muelle,transportista,tractora,remolque}});tx.set(colMovLogistica.doc(),{paletId:id,accion:'cargado',estado:'cargado',salidaId:sid,pedidoId:current.id,pedidoNum:current.num||'',ts,fecha:now});}
       for(const {x,n} of pickingValid){const ref=colPalets.doc(x.id),cajasAntes=parseInt(x.cajas)||0,rest=cajasAntes-n,udsAntes=parseInt(x.unidades)||0,udsPorCaja=cajasAntes>0?udsAntes/cajasAntes:0,udsRestantes=Math.max(0,Math.round(udsAntes-(n*udsPorCaja))); const reservas={...(x.reservasCajas||{})}; const rPrev=parseInt(reservas[current.id])||0; if(rPrev>0){reservas[current.id]=Math.max(rPrev-n,0);if(!reservas[current.id])delete reservas[current.id];} tx.update(ref,{cajas:rest,unidades:udsRestantes,estado:rest<=0?'agotado':'disponible',reservasCajas:reservas,lastPickingAt:firebase.firestore.FieldValue.serverTimestamp()});}
       pickNew.forEach((m,i)=>{const src=pickingValid[i].x;tx.set(colMovLogistica.doc(),{paletId:m.paletId,accion:'picking',estado:src.estado, pedidoId:current.id,pedidoNum:current.num||'',salidaId:sid,cajas:m.cajas,producto:m.producto,formato:m.formato,lote:m.lote,caducidad:m.caducidad,ts,fecha:now});});

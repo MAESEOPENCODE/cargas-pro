@@ -39,7 +39,7 @@
   }
 
   window.cpImprimirCarga=function(cargaId,modo){
-    const g=salidasPalets.filter(s=>String(s.cargaId||s.id)===String(cargaId)); if(!g.length){toast('⚠️ Carga no encontrada');return;}
+    const g=cpSalidasAll().filter(s=>String(s.cargaId||s.id)===String(cargaId)); if(!g.length){toast('⚠️ Carga no encontrada');return;}
     const ms=s=>createdValue(s.createdAt)||Date.parse(s.confirmedAt||'')||0;
     g.sort((a,b)=>(a.ordenCarga||999)-(b.ordenCarga||999)||ms(a)-ms(b));
     const h=g[0], det=modo==='detalle', n=v=>parseInt(v)||0;
@@ -65,6 +65,16 @@
     w.document.close();
   };
 
+  // Packings = documentos de salidas_palets + los reconstruidos desde palets "cargados" (por si faltara el documento de salida).
+  function cpSalidasAll(){
+    const base=Array.isArray(salidasPalets)?salidasPalets.slice():[]; const have=new Set(base.map(s=>String(s.id)));
+    const der=new Map();
+    (palets||[]).filter(x=>x.estado==='cargado'&&x.salidaId&&!have.has(String(x.salidaId))).forEach(x=>{
+      const sid=String(x.salidaId); if(!der.has(sid)){ const ci=x.cargaInfo||{}; der.set(sid,{id:sid,cargaId:sid.includes('-')?sid.split('-')[0]:sid,cargaNumero:'',ordenCarga:0,pedidoId:x.pedidoId||ci.pedidoId||'',pedidoNum:x.pedidoNum||ci.pedidoNum||'',cliente:x.cliente||'',palets:[],picking:[],estado:'cargado',muelle:ci.muelle||'',transportista:ci.transportista||'',tractora:ci.tractora||'',remolque:ci.remolque||'',createdAt:x.loadedAt||null,confirmedAt:'',_derivado:true}); }
+      der.get(sid).palets.push(x.id);
+    });
+    return base.concat([...der.values()]);
+  }
   window.cpPalTab=function(t){
     const packs=t==='packs';
     if($('cpPanelPalets'))$('cpPanelPalets').style.display=packs?'none':'';
@@ -75,20 +85,20 @@
   };
   window.cpRenderSalidas = function(){
     const el=$('cpSalidasLista'); const cnt=$('cpPacksCount');
-    if(cnt) cnt.textContent=window._salidasErr?'!':(window._salidasListo?(new Set(salidasPalets.map(s=>s.cargaId||s.id))).size:'…');
+    if(cnt) cnt.textContent=window._salidasErr?'!':(window._salidasListo?(new Set(cpSalidasAll().map(s=>s.cargaId||s.id))).size:'…');
     if(!el) return;
     if(window._salidasErr){ el.innerHTML='<div style="padding:16px;border:1px solid #d33;background:#fdecec;color:#900;border-radius:6px"><b>No se pueden leer los Packing Lists</b><br>'+esc(window._salidasErr)+'<br><small>Si pone "permission-denied", hay que permitir lectura de la colección <code>salidas_palets</code> en las reglas de Firestore.</small></div>'; return; }
     if(!window._salidasListo){ el.innerHTML='<div style="padding:20px;text-align:center;color:#7a8794">Cargando Packing Lists…</div>'; return; }
     const q=up($('cpPalBusca')?.value);
     const ms=s=>createdValue(s.createdAt)||Date.parse(s.confirmedAt||'')||Date.now();
-    const rows=salidasPalets.filter(s=>!q||[s.id,s.cargaId,s.pedidoNum,s.cliente,s.transportista,s.muelle,s.tractora,s.remolque,(s.palets||[]).join(' ')].join(' ').toUpperCase().includes(q));
+    const rows=cpSalidasAll().filter(s=>!q||[s.id,s.cargaId,s.pedidoNum,s.cliente,s.transportista,s.muelle,s.tractora,s.remolque,(s.palets||[]).join(' ')].join(' ').toUpperCase().includes(q));
     const grupos=new Map(); rows.forEach(s=>{const k=s.cargaId||s.id; if(!grupos.has(k))grupos.set(k,[]); grupos.get(k).push(s);});
     const cargas=[...grupos.values()].map(g=>({g,t:Math.max(...g.map(ms))})).sort((a,b)=>b.t-a.t);
     el.innerHTML=cargas.length?cargas.map(({g,t})=>{
       g.sort((a,b)=>(a.ordenCarga||999)-(b.ordenCarga||999)||ms(a)-ms(b)); const h=g[0], nPal=g.reduce((a,s)=>a+(s.palets||[]).length,0), nCaj=g.reduce((a,s)=>a+(s.picking||[]).reduce((b,r)=>b+(parseInt(r.cajas)||0),0),0);
       const veh=[h.transportista,h.tractora,h.remolque,h.muelle?('Muelle '+h.muelle):''].filter(Boolean).map(esc).join(' · ')||'—';
       return `<details class="cp-p-chip" style="display:block;margin-bottom:6px"><summary style="cursor:pointer"><b>Carga ${esc(h.cargaNumero||'')}</b> · ${new Date(t).toLocaleString('es-ES')} · ${g.length} pedido${g.length===1?'':'s'} · ${nPal} palets${nCaj?' + '+nCaj+' cajas picking':''}<div style="font-size:11px;color:#73808c">${veh}</div></summary><div style="padding:6px 0"><button class="cp-p-btn" onclick="cpImprimirCarga('${esc(h.cargaId||h.id)}','resumen')">🖨 Resumido</button> <button class="cp-p-btn primary" onclick="cpImprimirCarga('${esc(h.cargaId||h.id)}','detalle')">🖨 Detallado</button></div>${g.map((s,k)=>`<div style="padding:5px 0 5px 14px;border-top:1px solid #eee"><b>${k+1}º · ${esc(s.pedidoNum||s.pedidoId||'')}</b> · ${esc(s.cliente||'')}<div style="font-size:11px;color:#73808c">Palets: ${(s.palets||[]).map(esc).join(', ')||'—'}${(s.picking||[]).length?'<br>Picking: '+s.picking.map(r=>esc(r.paletId)+' ('+esc(r.cajas)+' cajas)').join(', '):''}</div></div>`).join('')}</details>`;
-    }).join(''):'<div style="padding:20px;text-align:center;color:#7a8794">Aún no hay Packing Lists confirmados.</div>';
+    }).join(''):'<div style="padding:20px;text-align:center;color:#7a8794">Aún no hay Packing Lists confirmados.<br><small>Diagnóstico · salidas_palets: '+salidasPalets.length+' · palets cargados: '+palets.filter(x=>x.estado==='cargado').length+' · pedidos cargados: '+pedidos.filter(p=>p.status==='cargado').length+'</small></div>';
   };
 
   window.cpRenderPalets = function(){

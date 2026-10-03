@@ -333,37 +333,68 @@ async function fbDeleteProduccion(id) {
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al eliminar'); }
 }
 
-// Consume stock FIFO para un artículo. Devuelve [{id, lote, palets, cajas, caducidad}]
-async function consumirStock(articulo, palets, cajas, formato, pedidoId, prodRef) {
-  const reqPal=Math.max(0,cpNum(palets)), reqCaj=Math.max(0,cpNum(cajas));
-  if(!reqPal && !reqCaj) return [];
-  const usados=[];
-  await db.runTransaction(async tx=>{
-    // Firestore Web no admite tx.get() sobre colecciones o consultas. Primero
-    // calculamos los candidatos y dentro de la transacción leemos solo documentos.
-    const candidatos=planConsumo(articulo,reqPal,reqCaj,formato,pedidoId,prodRef,false).plan;
-    const refs=[...new Set(candidatos.map(({l})=>String(l.id)))].map(id=>colProd.doc(id));
-    const docs=[]; for(const ref of refs) docs.push(await tx.get(ref));
-    const fresh=docs.filter(d=>d.exists).map(d=>({...d.data(),id:d.id}));
-    const prev=producciones;
+// Consume stock FIFO para todas las líneas de una carga.
+// Si recibe una transacción externa, no abre otra: stock y pedido quedan atómicos.
+async function consumirStockMulti(lineas, pedidoId, txExterna=null) {
+  const reqs=(lineas||[]).map(x=>({...x,
+    palets:Math.max(0,cpNum(x.palets)), cajas:Math.max(0,cpNum(x.cajas))
+  })).filter(x=>x.producto && (x.palets||x.cajas));
+  if(!reqs.length) return [];
+
+  // Los candidatos se calculan desde la caché ordenada FIFO, pero dentro de la
+  // transacción se leen únicamente sus DocumentReference concretas.
+  const acumuladas=new Map();
+  for(const req of reqs){
+    const key=[req.producto,req.formato||'',req.prodRef||''].join('|');
+    const a=acumuladas.get(key)||{...req,palets:0,cajas:0};
+    a.palets+=req.palets; a.cajas+=req.cajas; acumuladas.set(key,a);
+  }
+  const candidateIds=new Set();
+  for(const req of acumuladas.values()){
+    const {plan}=planConsumo(req.producto,req.palets,req.cajas,req.formato,pedidoId,req.prodRef,false);
+    plan.forEach(({l})=>candidateIds.add(String(l.id)));
+  }
+  if(!candidateIds.size) throw new Error('Stock insuficiente para la carga');
+
+  const ejecutar=async tx=>{
+    const refs=[...candidateIds].map(id=>colProd.doc(id));
+    const snaps=[];
+    for(const ref of refs) snaps.push(await tx.get(ref));
+    const fresh=snaps.filter(x=>x.exists).map(x=>({...x.data(),id:x.id}));
+    const anterior=producciones;
     producciones=fresh;
-    try {
-      const {plan,faltaPal,faltaCaj}=planConsumo(articulo,reqPal,reqCaj,formato,pedidoId,prodRef,false);
-      if(faltaPal>0 || faltaCaj>0) throw new Error(`Stock insuficiente: faltan ${faltaPal} palets y ${faltaCaj} cajas`);
-      for(const {l,up,uc} of plan){
-        const ref=colProd.doc(String(l.id));
-        const current=docs.find(d=>d.id===String(l.id))?.data();
-        if(!current) throw new Error('El lote '+l.id+' ya no existe');
-        const np=(parseFloat(current.paletsConsumidos)||0)+up;
-        const nc=(parseFloat(current.cajasConsumidos)||0)+uc;
-        const totalP=parseFloat(current.palets)||0, totalC=parseFloat(current.cajas)||0;
-        if(np>totalP || nc>totalC) throw new Error('Stock cambiado durante la carga; vuelve a intentarlo');
-        tx.update(ref,{paletsConsumidos:np,cajasConsumidos:nc,schemaVersion:CP_SCHEMA_VERSION});
-        usados.push({id:l.id,lote:l.lote||'',palets:up,cajas:uc,caducidad:l.caducidad||''});
+    try{
+      const updates=new Map(), resultado=[];
+      for(const req of reqs){
+        const {plan,faltaPal,faltaCaj}=planConsumo(req.producto,req.palets,req.cajas,req.formato,pedidoId,req.prodRef,false);
+        if(faltaPal>0 || faltaCaj>0) throw new Error(`Stock insuficiente para ${req.producto}: faltan ${faltaPal} palets y ${faltaCaj} cajas`);
+        for(const {l,up,uc} of plan){
+          const snap=snaps.find(x=>x.id===String(l.id));
+          const current=snap?.data();
+          if(!current) throw new Error('El lote '+l.id+' ya no existe; vuelve a intentarlo');
+          const previo=updates.get(String(l.id))||{
+            paletsConsumidos:parseFloat(current.paletsConsumidos)||0,
+            cajasConsumidos:parseFloat(current.cajasConsumidos)||0
+          };
+          const np=previo.paletsConsumidos+up, nc=previo.cajasConsumidos+uc;
+          const totalP=parseFloat(current.palets)||0, totalC=parseFloat(current.cajas)||0;
+          if(np>totalP || nc>totalC) throw new Error('Stock cambiado durante la carga; vuelve a intentarlo');
+          updates.set(String(l.id),{paletsConsumidos:np,cajasConsumidos:nc});
+          const working=producciones.find(x=>String(x.id)===String(l.id));
+          if(working){working.paletsConsumidos=np;working.cajasConsumidos=nc;}
+          const found=resultado.find(x=>String(x.id)===String(l.id)&&x.producto===req.producto);
+          if(found){found.palets+=up;found.cajas+=uc;}
+          else resultado.push({id:l.id,producto:req.producto,lote:l.lote||'',palets:up,cajas:uc,caducidad:l.caducidad||''});
+        }
       }
-    } finally { producciones=prev; }
-  });
-  return usados;
+      for(const [id,data] of updates) tx.update(colProd.doc(id),{...data,schemaVersion:CP_SCHEMA_VERSION});
+      return resultado;
+    }finally{ producciones=anterior; }
+  };
+  return txExterna ? ejecutar(txExterna) : db.runTransaction(ejecutar);
+}
+async function consumirStock(articulo,palets,cajas,formato,pedidoId,prodRef){
+  return consumirStockMulti([{producto:articulo,palets,cajas,formato,prodRef}],pedidoId);
 }
 // ════ FIX BUG: día de carga real (no fecha planificada del pedido) ════
 // Si un pedido tiene cargadoAt (fecha real en que se pulsó "Cargado") usar esa,
@@ -1388,6 +1419,7 @@ async function confirmarCarga() {
   const bloques = [...document.querySelectorAll('#c-productos-lista .c-linea-carga')];
   let completoGlobal = true;
   let lotesConsumidosTotal = [];
+  const consumos = [];
   const resumenPartes = [];
   const productosExtraActualizados = (p.productosExtra||[]).map(pe=>({...pe}));
   let mainUpdate = {};
@@ -1408,11 +1440,9 @@ async function confirmarCarga() {
     const cajOk = totalCaj>0 ? nuevoTotalCaj >= totalCaj : true;
     if (!(palOk && cajOk)) completoGlobal = false;
 
-    // Descontar stock (FIFO por caducidad) del artículo de esta línea
+    // Se acumulan todas las líneas; el stock se consume una sola vez más abajo.
     if (producto && (estaPal>0 || estaCaj>0)) {
-      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'', p.id, el.dataset.prodref||'');
-      usados.forEach(u => u.producto = producto);
-      lotesConsumidosTotal = lotesConsumidosTotal.concat(usados);
+      consumos.push({producto,palets:estaPal,cajas:estaCaj,formato:el.dataset.formato||'',prodRef:el.dataset.prodref||''});
     }
     if (estaPal>0 || estaCaj>0) {
       const txt = [estaPal?`${estaPal} pal.`:'', estaCaj?`${estaCaj} cajas`:''].filter(Boolean).join(' ');
@@ -1464,8 +1494,27 @@ async function confirmarCarga() {
   };
   const n2=document.getElementById('c-notas').value.trim();
   if(n2) updated.notas=p.notas?p.notas+' | '+n2:n2;
+  try {
+    setSyncStatus('saving');
+    const orderRef=col.doc(String(p.id));
+    await db.runTransaction(async tx=>{
+      // Esta lectura hace que Firestore detecte cualquier edición concurrente del pedido.
+      const orderSnap=await tx.get(orderRef);
+      if(!orderSnap.exists) throw new Error('El pedido ya no existe; vuelve a intentarlo');
+      lotesConsumidosTotal=await consumirStockMulti(consumos,p.id,tx);
+      lotesConsumidosTotal.forEach(u=>{u.producto=u.producto||'';});
+      registroCarga.lotesConsumidos=lotesConsumidosTotal;
+      const finalUpdated={...updated,cargasHistorial:[...(p.cargasHistorial||[]),registroCarga]};
+      tx.set(orderRef,_cpAudit(finalUpdated,'pedido_cargado'));
+    });
+    setSyncStatus('ok');
+  } catch(err) {
+    console.error('Carga atómica:',err);
+    setSyncStatus('offline');
+    toast('❌ No se confirmó la carga: '+(err.message||err));
+    return;
+  }
   closeCargarModal();
-  await fbSave(updated);
   if (!completoGlobal) {
     toast(`🟡 Carga parcial: ${resumenPartes.join(' · ')||'registrada'}`);
   } else {

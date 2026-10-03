@@ -1,53 +1,41 @@
-const CACHE_NAME = 'cargas-pro-shell-v15';
-const VERSION = '20261003-15';
-const APP_SHELL = [
-  './?v='+VERSION,
-  './index.html?v='+VERSION,
-  './css/app.css?v='+VERSION,
-  './js/00-watchdog.js?v='+VERSION,
-  './js/01-app.js?v='+VERSION,
-  './js/02-navigation.js?v='+VERSION,
-  './js/03-palets.js?v='+VERSION
-];
+// Cargas Pro · Service Worker — SIEMPRE intenta la red primero (última versión); la caché es solo para trabajar sin conexión.
+const CACHE = 'cargaspro-v7-20261003';
+const CORE = ['./', './index.html', './manifest.json', './css/app.css', './js/00-watchdog.js', './js/01-app.js', './js/02-navigation.js', './js/03-palets.js'];
+const CDN = ['www.gstatic.com', 'cdn.jsdelivr.net', 'unpkg.com'];
 
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
-  );
+self.addEventListener('install', e => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(CORE.map(u =>
+    fetch(u, { cache: 'reload' }).then(r => r.ok && c.put(u, r)).catch(() => {})))));
 });
 
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
-    )).then(() => self.clients.claim())
-  );
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
 });
 
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    fetch(event.request).then(response => {
-      if (response && (response.ok || response.type === 'opaque')) {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(() => {});
-      }
-      return response;
-    }).catch(() => caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      if (event.request.mode === 'navigate') return caches.match('./index.html');
-      return new Response('', {status: 503, statusText: 'Offline'});
-    }))
-  );
-});
-
-self.addEventListener('message', event => {
-  if (event.data === 'SKIP_WAITING') { self.skipWaiting(); return; }
-  if (event.data === 'CLEAR_CACHE') {
-    caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))).then(() => {
-      self.clients.matchAll().then(clients => clients.forEach(client => client.postMessage('CACHE_CLEARED')));
+self.addEventListener('message', e => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+  if (e.data === 'CLEAR_CACHE') {
+    caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))).then(() => {
+      (e.source || self.clients).postMessage?.('CACHE_CLEARED');
     });
   }
+});
+
+self.addEventListener('fetch', e => {
+  const req = e.request, url = new URL(req.url);
+  if (req.method !== 'GET') return;
+  if (url.origin !== self.location.origin && !CDN.includes(url.hostname)) return; // Firestore, Auth, etc. van directos
+  e.respondWith((async () => {
+    try {
+      const fresh = await fetch(req, { cache: 'no-cache' });          // salta la caché HTTP del navegador
+      if (fresh && (fresh.ok || fresh.type === 'opaque')) { const c = await caches.open(CACHE); c.put(req, fresh.clone()); }
+      return fresh;
+    } catch (_) {
+      const hit = await caches.match(req, { ignoreSearch: url.origin === self.location.origin });
+      if (hit) return hit;
+      if (req.mode === 'navigate') { const idx = await caches.match('./index.html'); if (idx) return idx; }
+      return new Response('Sin conexión', { status: 503, statusText: 'Offline' });
+    }
+  })());
 });

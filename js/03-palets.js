@@ -23,10 +23,12 @@
   function palletStatusLabel(s){ return ({disponible:'Disponible',reservado:'Reservado',preparando:'Preparando',cargado:'Cargado',bloqueado:'Bloqueado',anulado:'Anulado',agotado:'Agotado'}[s]||s||'—'); }
   function createdValue(v){ return v?.seconds ? v.seconds*1000 : (typeof v==='number'?v:Date.parse(v||'')||0); }
 
-  window.abrirPalets = function(){
+  window.abrirPalets = function(opciones={}){
     $('cpPaletsScreen').classList.add('open');
     document.body.style.overflow='hidden';
+    if($('cpPalEstado') && Object.prototype.hasOwnProperty.call(opciones,'estado')) $('cpPalEstado').value=opciones.estado||'';
     cpRenderPalets();
+    if(opciones.vista==='salida') setTimeout(()=>cpNuevaSalida(),80);
   };
   window.cerrarPalets = function(){ $('cpPaletsScreen').classList.remove('open'); document.body.style.overflow=''; cpCerrarCamara(); };
 
@@ -45,7 +47,8 @@
     palets.forEach(x=>{if(counts[x.estado]!=null) counts[x.estado]++;});
     $('cpStatDisp').textContent=counts.disponible; $('cpStatRes').textContent=counts.reservado; $('cpStatPrep').textContent=counts.preparando; $('cpStatLoad').textContent=counts.cargado;
     const rows=palets.filter(x=>{
-      if(st && x.estado!==st) return false;
+      if(st==='__sin_ubicacion__' && (x.estado==='cargado' || String(x.ubicacion||'').trim())) return false;
+      if(st && st!=='__sin_ubicacion__' && x.estado!==st) return false;
       if(pid && String(x.pedidoId)!==String(pid)) return false;
       if(q){ const txt=[x.id,x.pedidoNum,x.cliente,x.producto,x.formato,x.lote,x.ubicacion,x.prodRef,x.sscc].join(' ').toUpperCase(); if(!txt.includes(q)) return false; }
       return true;
@@ -56,6 +59,10 @@
       const prodLabel=mixto?'MIXTO':(x.producto||'');
       return `<tr><td><span class="cp-p-code">${esc(x.id)}</span>${x.sscc?`<div style="font-size:9px;color:#74808b">SSCC ${esc(x.sscc)}</div>`:''}</td><td>${esc(x.pedidoNum||'STOCK')}<div style="font-size:10px;color:#73808c">${esc(x.cliente||'')}</div></td><td><b>${esc(prodLabel)}</b><div style="font-size:10px;color:#73808c">${esc(x.formato||'')}</div></td><td>${cont}</td><td>${esc(x.lote||'—')}</td><td>${esc(x.ubicacion||'—')}</td><td><span class="cp-p-status ${esc(x.estado||'')}">${esc(palletStatusLabel(x.estado))}</span></td><td><button class="cp-p-btn" onclick="cpImprimirEtiqueta('${esc(x.id)}')">🏷️</button> <button class="cp-p-btn" onclick="cpCambiarUbicacion('${esc(x.id)}')">📍</button> <button class="cp-p-btn" onclick="cpVerPalet('${esc(x.id)}')">Ver</button> <button class="cp-p-btn" onclick="cpEditarPalet('${esc(x.id)}')">✏️ Editar</button> <button class="cp-p-btn danger" onclick="cpBorrarPalet('${esc(x.id)}')">🗑️ Borrar</button></td></tr>`;
     }).join('')}</tbody></table>`:'<div style="padding:35px;text-align:center;color:#7a8794">No hay palets que coincidan con los filtros.</div>';
+  };
+  window.cpPalQuickFilter=function(estado){
+    const el=$('cpPalEstado'); if(el) el.value=estado||'';
+    cpRenderPalets();
   };
 
   function cpPedidoLineaOptions(p){

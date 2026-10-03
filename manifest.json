@@ -1,7 +1,9 @@
 {
   "name": "CargasPro · Operaciones Arteoliva",
   "short_name": "CargasPro",
+  "id": "/cargas-pro/",
   "start_url": "/cargas-pro/",
+  "scope": "/cargas-pro/",
   "display": "standalone",
   "background_color": "#f6f6f1",
   "theme_color": "#17232c",

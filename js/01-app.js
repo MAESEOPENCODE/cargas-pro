@@ -104,43 +104,41 @@ function _dedupeProducciones(rows){
   });
   return [...m.values()];
 }
-const CP_HISTORY_LIMIT=500, CP_STOCK_LIMIT=1000, CP_MOV_DAYS=90;
-function cpMovimientosDesde(){ return Date.now()-CP_MOV_DAYS*86400000; }
 function startReferenceListeners(){ if (!db) return;
-colProd.limit(CP_STOCK_LIMIT).onSnapshot((snap) => {
+colProd.onSnapshot((snap) => {
   producciones = _dedupeProducciones(snap.docs.map(d => ({ ...d.data(), id: d.id })));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
   render(); // por si hay avisos de stock visibles en el formulario abierto
 }, (err) => { console.error('Firestore producción:', err); });
-colMat.limit(CP_STOCK_LIMIT).onSnapshot((snap) => {
+colMat.onSnapshot((snap) => {
   materiales = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   materiales.sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore materiales:', err); });
-colRecetas.limit(CP_STOCK_LIMIT).onSnapshot((snap) => {
+colRecetas.onSnapshot((snap) => {
   recetas = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore recetas:', err); });
-colMovMat.where('ts','>=',cpMovimientosDesde()).orderBy('ts','desc').limit(CP_HISTORY_LIMIT).onSnapshot((snap) => {
+colMovMat.onSnapshot((snap) => {
   movimientosMat = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   movimientosMat.sort((a,b) => (b.ts||0)-(a.ts||0));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore movimientos materiales:', err); });
-colMovProd.where('ts','>=',cpMovimientosDesde()).orderBy('ts','desc').limit(CP_HISTORY_LIMIT).onSnapshot((snap) => {
+colMovProd.onSnapshot((snap) => {
   movimientosProd = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   movimientosProd.sort((a,b) => (b.ts||0)-(a.ts||0));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore movimientos producción:', err); });
-colPalets.limit(CP_STOCK_LIMIT).onSnapshot((snap)=>{
+colPalets.onSnapshot((snap)=>{
   palets = snap.docs.map(d=>({...d.data(),id:d.id}));
   palets.sort((a,b)=>(b.createdAt?.seconds||b.createdAt||0)-(a.createdAt?.seconds||a.createdAt||0));
   if(document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPalets();
 },(err)=>console.error('Firestore palets:',err));
 colSalidasPalets.onSnapshot((snap)=>{
   salidasPalets = snap.docs.map(d=>({...d.data(),id:d.id}));
-  if(document.getElementById('cpPackingView')?.style.display!=='none' && document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPackingLists();
-},(err)=>{ console.error('Firestore salidas palets:',err); toast('⚠️ No se pudo leer el histórico de Packing Lists: '+(err.code||'permiso o conexión'),6000); });
+  if(document.getElementById('cpPaletsScreen')?.classList.contains('open')) window.cpRenderSalidas?.();
+},(err)=>console.error('Firestore salidas palets:',err));
 }
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
@@ -334,68 +332,35 @@ async function fbDeleteProduccion(id) {
   catch(e) { console.error(e); setSyncStatus('offline'); toast('❌ Error al eliminar'); }
 }
 
-// Consume stock FIFO para todas las líneas de una carga.
-// Si recibe una transacción externa, no abre otra: stock y pedido quedan atómicos.
-async function consumirStockMulti(lineas, pedidoId, txExterna=null) {
-  const reqs=(lineas||[]).map(x=>({...x,
-    palets:Math.max(0,cpNum(x.palets)), cajas:Math.max(0,cpNum(x.cajas))
-  })).filter(x=>x.producto && (x.palets||x.cajas));
-  if(!reqs.length) return [];
-
-  // Los candidatos se calculan desde la caché ordenada FIFO, pero dentro de la
-  // transacción se leen únicamente sus DocumentReference concretas.
-  const acumuladas=new Map();
-  for(const req of reqs){
-    const key=[req.producto,req.formato||'',req.prodRef||''].join('|');
-    const a=acumuladas.get(key)||{...req,palets:0,cajas:0};
-    a.palets+=req.palets; a.cajas+=req.cajas; acumuladas.set(key,a);
-  }
-  const candidateIds=new Set();
-  for(const req of acumuladas.values()){
-    const {plan}=planConsumo(req.producto,req.palets,req.cajas,req.formato,pedidoId,req.prodRef,false);
-    plan.forEach(({l})=>candidateIds.add(String(l.id)));
-  }
-  if(!candidateIds.size) throw new Error('Stock insuficiente para la carga');
-
-  const ejecutar=async tx=>{
-    const refs=[...candidateIds].map(id=>colProd.doc(id));
-    const snaps=[];
-    for(const ref of refs) snaps.push(await tx.get(ref));
-    const fresh=snaps.filter(x=>x.exists).map(x=>({...x.data(),id:x.id}));
-    const anterior=producciones;
+// Consume stock FIFO para un artículo. Devuelve [{id, lote, palets, cajas, caducidad}]
+async function consumirStock(articulo, palets, cajas, formato, pedidoId, prodRef) {
+  const reqPal=Math.max(0,cpNum(palets)), reqCaj=Math.max(0,cpNum(cajas));
+  if(!reqPal && !reqCaj) return [];
+  const usados=[];
+  await db.runTransaction(async tx=>{
+    // Leemos los lotes dentro de la transacción para que dos cargas simultáneas
+    // no puedan consumir la misma existencia basándose en una copia antigua.
+    const snap=await tx.get(colProd);
+    const fresh=snap.docs.map(d=>({...d.data(),id:d.id}));
+    const prev=producciones;
     producciones=fresh;
-    try{
-      const updates=new Map(), resultado=[];
-      for(const req of reqs){
-        const {plan,faltaPal,faltaCaj}=planConsumo(req.producto,req.palets,req.cajas,req.formato,pedidoId,req.prodRef,false);
-        if(faltaPal>0 || faltaCaj>0) throw new Error(`Stock insuficiente para ${req.producto}: faltan ${faltaPal} palets y ${faltaCaj} cajas`);
-        for(const {l,up,uc} of plan){
-          const snap=snaps.find(x=>x.id===String(l.id));
-          const current=snap?.data();
-          if(!current) throw new Error('El lote '+l.id+' ya no existe; vuelve a intentarlo');
-          const previo=updates.get(String(l.id))||{
-            paletsConsumidos:parseFloat(current.paletsConsumidos)||0,
-            cajasConsumidos:parseFloat(current.cajasConsumidos)||0
-          };
-          const np=previo.paletsConsumidos+up, nc=previo.cajasConsumidos+uc;
-          const totalP=parseFloat(current.palets)||0, totalC=parseFloat(current.cajas)||0;
-          if(np>totalP || nc>totalC) throw new Error('Stock cambiado durante la carga; vuelve a intentarlo');
-          updates.set(String(l.id),{paletsConsumidos:np,cajasConsumidos:nc});
-          const working=producciones.find(x=>String(x.id)===String(l.id));
-          if(working){working.paletsConsumidos=np;working.cajasConsumidos=nc;}
-          const found=resultado.find(x=>String(x.id)===String(l.id)&&x.producto===req.producto);
-          if(found){found.palets+=up;found.cajas+=uc;}
-          else resultado.push({id:l.id,producto:req.producto,lote:l.lote||'',palets:up,cajas:uc,caducidad:l.caducidad||''});
-        }
+    try {
+      const {plan,faltaPal,faltaCaj}=planConsumo(articulo,reqPal,reqCaj,formato,pedidoId,prodRef,false);
+      if(faltaPal>0 || faltaCaj>0) throw new Error(`Stock insuficiente: faltan ${faltaPal} palets y ${faltaCaj} cajas`);
+      for(const {l,up,uc} of plan){
+        const ref=colProd.doc(String(l.id));
+        const current=snap.docs.find(d=>d.id===String(l.id))?.data();
+        if(!current) throw new Error('El lote '+l.id+' ya no existe');
+        const np=(parseFloat(current.paletsConsumidos)||0)+up;
+        const nc=(parseFloat(current.cajasConsumidos)||0)+uc;
+        const totalP=parseFloat(current.palets)||0, totalC=parseFloat(current.cajas)||0;
+        if(np>totalP || nc>totalC) throw new Error('Stock cambiado durante la carga; vuelve a intentarlo');
+        tx.update(ref,{paletsConsumidos:np,cajasConsumidos:nc,schemaVersion:CP_SCHEMA_VERSION});
+        usados.push({id:l.id,lote:l.lote||'',palets:up,cajas:uc,caducidad:l.caducidad||''});
       }
-      for(const [id,data] of updates) tx.update(colProd.doc(id),{...data,schemaVersion:CP_SCHEMA_VERSION});
-      return resultado;
-    }finally{ producciones=anterior; }
-  };
-  return txExterna ? ejecutar(txExterna) : db.runTransaction(ejecutar);
-}
-async function consumirStock(articulo,palets,cajas,formato,pedidoId,prodRef){
-  return consumirStockMulti([{producto:articulo,palets,cajas,formato,prodRef}],pedidoId);
+    } finally { producciones=prev; }
+  });
+  return usados;
 }
 // ════ FIX BUG: día de carga real (no fecha planificada del pedido) ════
 // Si un pedido tiene cargadoAt (fecha real en que se pulsó "Cargado") usar esa,
@@ -499,23 +464,21 @@ function startPedidoListener(){ if (!db) return; col.onSnapshot((snapshot) => {
   });
   hideLoadingScreen();
   setSyncStatus('ok');
-  // ARRANQUE: mostrar el conjunto operativo completo para que tarjetas y tabla
-  // enseñen pedidos, estado y datos logísticos desde la pantalla principal.
-  // Después de la primera carga se conserva la pestaña elegida por el usuario.
+  // ARRANQUE: Pedidos es el módulo principal de Cargas Pro.
+  // Entramos siempre en Confección al abrir la aplicación.
   if(!window._initialRenderDone){
-    activeTab = 'todos';
+    activeTab = 'pendientes';
     window._initialRenderDone = true;
-    filtroHoyActivo = false;
-    filtroMañanaActivo = false;
-    document.getElementById('fFechaDesde').value = '';
-    document.getElementById('fFechaHasta').value = '';
-    resetHoyBtn();
-    resetMañanaBtn();
+    const hoy = new Date().toISOString().slice(0,10);
+    filtroHoyActivo = true;
+    document.getElementById('fFechaDesde').value = hoy;
+    document.getElementById('fFechaHasta').value = hoy;
+    const btn = document.getElementById('hoyBtn');
+    if(btn){ btn.style.background='var(--brand-primary)'; btn.style.color='var(--dhl-dark)'; btn.style.borderColor='var(--brand-primary-dark)'; }
   }
-  // Sincronizar navegación y breadcrumb sin sobrescribir la pestaña activa.
-  if (typeof setTab === 'function') setTab(activeTab);
+  // Sincronizar navegación y breadcrumb con el módulo principal.
+  if (typeof setTab === 'function') setTab('pendientes');
   else render();
-  if(document.getElementById('cpPackingView')?.style.display!=='none' && document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPackingLists();
 }, (err) => {
   clearTimeout(_loadTimeout);
   console.error('Firestore:', err);
@@ -537,10 +500,8 @@ if (auth) auth.onAuthStateChanged(async user=>{
   const label=document.getElementById('authUser');
   if(user){
     currentRole='operario';
-    try { const prof=await db.collection('usuarios').doc(user.uid).get(); currentRole=prof.exists ? (prof.data().rol||'operario') : 'operario'; } catch(err) { console.warn('No se pudo leer el rol; se usará operario:',err); toast('⚠️ No se pudo comprobar tu rol. Se aplican permisos de operario.',5000); }
-    if(label)label.textContent=(user.email||'')+' · '+(currentRole==='admin'?'Administrador':'Operario');
-    document.body.classList.toggle('operator-mode',currentRole!=='admin' && window.innerWidth<900);
-    document.querySelectorAll('[data-admin-action]').forEach(el=>{el.hidden=currentRole!=='admin';});
+    try { const prof=await db.collection('usuarios').doc(user.uid).get(); currentRole=prof.exists ? (prof.data().rol||'operario') : 'operario'; } catch(_) {}
+    if(label)label.textContent=user.email||'';
     window._cpHideLogin?.();
     offlineReady.then(()=>{if(!window._cpListenersStarted){window._cpListenersStarted=true;startReferenceListeners();startPedidoListener();}});
   } else {if(label)label.textContent='';hideLoadingScreen();window._cpShowLogin?.();}
@@ -1422,7 +1383,6 @@ async function confirmarCarga() {
   const bloques = [...document.querySelectorAll('#c-productos-lista .c-linea-carga')];
   let completoGlobal = true;
   let lotesConsumidosTotal = [];
-  const consumos = [];
   const resumenPartes = [];
   const productosExtraActualizados = (p.productosExtra||[]).map(pe=>({...pe}));
   let mainUpdate = {};
@@ -1443,9 +1403,11 @@ async function confirmarCarga() {
     const cajOk = totalCaj>0 ? nuevoTotalCaj >= totalCaj : true;
     if (!(palOk && cajOk)) completoGlobal = false;
 
-    // Se acumulan todas las líneas; el stock se consume una sola vez más abajo.
+    // Descontar stock (FIFO por caducidad) del artículo de esta línea
     if (producto && (estaPal>0 || estaCaj>0)) {
-      consumos.push({producto,palets:estaPal,cajas:estaCaj,formato:el.dataset.formato||'',prodRef:el.dataset.prodref||''});
+      const usados = await consumirStock(producto, estaPal, estaCaj, el.dataset.formato||'', p.id, el.dataset.prodref||'');
+      usados.forEach(u => u.producto = producto);
+      lotesConsumidosTotal = lotesConsumidosTotal.concat(usados);
     }
     if (estaPal>0 || estaCaj>0) {
       const txt = [estaPal?`${estaPal} pal.`:'', estaCaj?`${estaCaj} cajas`:''].filter(Boolean).join(' ');
@@ -1497,27 +1459,8 @@ async function confirmarCarga() {
   };
   const n2=document.getElementById('c-notas').value.trim();
   if(n2) updated.notas=p.notas?p.notas+' | '+n2:n2;
-  try {
-    setSyncStatus('saving');
-    const orderRef=col.doc(String(p.id));
-    await db.runTransaction(async tx=>{
-      // Esta lectura hace que Firestore detecte cualquier edición concurrente del pedido.
-      const orderSnap=await tx.get(orderRef);
-      if(!orderSnap.exists) throw new Error('El pedido ya no existe; vuelve a intentarlo');
-      lotesConsumidosTotal=await consumirStockMulti(consumos,p.id,tx);
-      lotesConsumidosTotal.forEach(u=>{u.producto=u.producto||'';});
-      registroCarga.lotesConsumidos=lotesConsumidosTotal;
-      const finalUpdated={...updated,cargasHistorial:[...(p.cargasHistorial||[]),registroCarga]};
-      tx.set(orderRef,_cpAudit(finalUpdated,'pedido_cargado'));
-    });
-    setSyncStatus('ok');
-  } catch(err) {
-    console.error('Carga atómica:',err);
-    setSyncStatus('offline');
-    toast('❌ No se confirmó la carga: '+(err.message||err));
-    return;
-  }
   closeCargarModal();
+  await fbSave(updated);
   if (!completoGlobal) {
     toast(`🟡 Carga parcial: ${resumenPartes.join(' · ')||'registrada'}`);
   } else {
@@ -3132,16 +3075,27 @@ window.addEventListener('appinstalled',()=>{document.getElementById('pwa-banner'
 
 // ══ SERVICE WORKER ══
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=20261003-15', {updateViaCache:'none'}).then(reg => {
-    reg.update().catch(()=>{});
-    if(reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+  // Siempre la última versión: el SW es "network-first", se busca actualización al abrir y al volver a la app,
+  // y cuando hay versión nueva se activa sola y se recarga (salvo que haya una ventana de trabajo abierta).
+  let _swRecargando = false;
+  const _hayTrabajoAbierto = () => !!document.querySelector('.cp-p-modal.open, .modal-bg.open');
+  const _aplicarRecarga = () => { if (_swRecargando) return; _swRecargando = true; location.reload(); };
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!_hadController) return;           // primera instalación: no recargar
+    if (_hayTrabajoAbierto()) { toast('🔄 Nueva versión lista · se aplicará al cerrar la ventana', 5000); const t = setInterval(() => { if (!_hayTrabajoAbierto()) { clearInterval(t); _aplicarRecarga(); } }, 1500); }
+    else _aplicarRecarga();
+  });
+  var _hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+    const buscar = () => reg.update().catch(() => {});
+    buscar();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') buscar(); });
+    window.addEventListener('online', buscar);
+    setInterval(buscar, 5 * 60 * 1000);
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
-      nw.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-          nw.postMessage('SKIP_WAITING');
-          setTimeout(()=>location.reload(),150);
-        }
+      nw && nw.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) nw.postMessage('SKIP_WAITING');
       });
     });
   }).catch(err => console.warn('SW no registrado:', err));
@@ -3181,7 +3135,6 @@ function repararApp() {
 }
 // ══ VACIAR DATOS — inicio limpio de la aplicación ══
 async function vaciarDatosApp() {
-  if(!_cpEsAdmin()){ toast('⛔ Solo un administrador puede vaciar los datos'); return; }
   const total = pedidos.length + producciones.length + materiales.length + recetas.length + movimientosMat.length + movimientosProd.length + palets.length + salidasPalets.length;
   confirm2('⚠️','Vaciar datos de Cargas Pro',
     `Esta operación eliminará TODOS los datos de trabajo de la aplicación (${total} registros aprox.).\n\nSe borrarán pedidos, producción/lotes, materiales, recetas, palets, salidas y movimientos. El programa y su configuración técnica permanecerán intactos.\n\nAntes de continuar puedes usar «Guardar copia».`,
@@ -3199,7 +3152,6 @@ async function vaciarDatosApp() {
 }
 
 async function ejecutarVaciadoDatosApp() {
-  if(!_cpEsAdmin()){ toast('⛔ Solo un administrador puede vaciar los datos'); return; }
   const colecciones = [
     ['pedidos', col],
     ['movimientos_palets', colMov],

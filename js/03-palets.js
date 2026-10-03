@@ -13,9 +13,7 @@
   let salidaPedidoActivo = '';
   let salidaPorPedido = new Map();
   let salidaCargaId = '';
-  let cpPaletsVista = 'palets';
   let cpEditPaletId = '';
-  let cpConfirmandoSalida = false;
   function cpGuardarPreparacionActiva(){ if(salidaPedidoActivo) salidaPorPedido.set(String(salidaPedidoActivo),{palets:[...salidaPalets],picking:JSON.parse(JSON.stringify(salidaPicking))}); }
   function cpCargarPreparacion(id){ const v=salidaPorPedido.get(String(id))||{palets:[],picking:[]}; salidaPalets=[...(v.palets||[])]; salidaPicking=JSON.parse(JSON.stringify(v.picking||[])); }
   let camStream = null, camTimer = null;
@@ -25,13 +23,10 @@
   function palletStatusLabel(s){ return ({disponible:'Disponible',reservado:'Reservado',preparando:'Preparando',cargado:'Cargado',bloqueado:'Bloqueado',anulado:'Anulado',agotado:'Agotado'}[s]||s||'—'); }
   function createdValue(v){ return v?.seconds ? v.seconds*1000 : (typeof v==='number'?v:Date.parse(v||'')||0); }
 
-  window.abrirPalets = function(opciones={}){
+  window.abrirPalets = function(){
     $('cpPaletsScreen').classList.add('open');
     document.body.style.overflow='hidden';
-    cpPaletsVista='palets'; $('cpPackingView').style.display='none'; $('cpPaletsView').style.display='';
-    if($('cpPalEstado') && Object.prototype.hasOwnProperty.call(opciones,'estado')) $('cpPalEstado').value=opciones.estado||'';
     cpRenderPalets();
-    if(opciones.vista==='salida') setTimeout(()=>cpAbrirPackingLists(),80);
   };
   window.cerrarPalets = function(){ $('cpPaletsScreen').classList.remove('open'); document.body.style.overflow=''; cpCerrarCamara(); };
 
@@ -43,6 +38,47 @@
     if(ps.some(p=>String(p.id)===String(current))) el.value=current;
   }
 
+  window.cpImprimirCarga=function(cargaId,modo){
+    const g=salidasPalets.filter(s=>String(s.cargaId||s.id)===String(cargaId)); if(!g.length){toast('⚠️ Carga no encontrada');return;}
+    const ms=s=>createdValue(s.createdAt)||Date.parse(s.confirmedAt||'')||0;
+    g.sort((a,b)=>(a.ordenCarga||999)-(b.ordenCarga||999)||ms(a)-ms(b));
+    const h=g[0], det=modo==='detalle', n=v=>parseInt(v)||0;
+    const fecha=new Date(ms(h)||Date.now()).toLocaleString('es-ES');
+    let seq=0, totP=0, totC=0, totK=0, totPk=0;
+    const bloques=g.map((s,k)=>{
+      const ps=(s.palets||[]).map(id=>palets.find(x=>String(x.id)===String(id))||{id}), pk=s.picking||[];
+      const cajasP=ps.reduce((a,x)=>a+(Array.isArray(x.contenido)&&x.contenido.length?x.contenido.reduce((b,c)=>b+n(c.cajas),0):n(x.cajas)),0);
+      const cajasPk=pk.reduce((a,r)=>a+n(r.cajas),0), kg=ps.reduce((a,x)=>a+(parseFloat(x.peso)||0),0);
+      totP+=ps.length; totC+=cajasP; totPk+=cajasPk; totK+=kg;
+      const ped=pedidos.find(p=>String(p.id)===String(s.pedidoId));
+      const cab=`<td>${k+1}º</td><td><b>${esc(s.pedidoNum||s.pedidoId)}</b></td><td>${esc(s.cliente||'')}</td>`;
+      if(!det) return {res:`<tr>${cab}<td>${esc(ped?.producto||'')}${ped?.productosExtra?.length?' +'+ped.productosExtra.length:''}</td><td class="r">${ps.length}</td><td class="r">${cajasP}</td><td class="r">${cajasPk||''}</td><td class="r">${kg?kg.toFixed(1):''}</td></tr>`};
+      const filas=ps.map(x=>{ seq++; const mix=Array.isArray(x.contenido)&&x.contenido.length;
+        return `<tr><td>${seq}</td><td><b>${esc(x.id)}</b>${x.sscc?'<br><small>SSCC '+esc(x.sscc)+'</small>':''}</td><td>${mix?'MIXTO<br>'+x.contenido.map(c=>'<small>'+esc(c.producto)+': '+esc(c.cajas||0)+'</small>').join('<br>'):esc(x.producto||'')+'<br><small>'+esc(x.formato||'')+'</small>'}</td><td>${esc(x.lote||'—')}</td><td>${esc(x.caducidad||'—')}</td><td class="r">${mix?x.contenido.reduce((b,c)=>b+n(c.cajas),0):n(x.cajas)}</td><td>${esc(x.ubicacion||'')}</td><td class="r">${x.peso?esc(x.peso):''}</td><td class="chk">☐</td></tr>`;}).join('');
+      const filasPk=pk.map(r=>`<tr class="pk"><td>PK</td><td><b>${esc(r.paletId)}</b></td><td>${esc(r.producto||'')}<br><small>${esc(r.formato||'')}</small></td><td>${esc(r.lote||'—')}</td><td>${esc(r.caducidad||'—')}</td><td class="r">${n(r.cajas)}</td><td colspan="2"><small>Picking (cajas sueltas)</small></td><td class="chk">☐</td></tr>`).join('');
+      return {det:`<div class="ped"><b>${k+1}º · Pedido ${esc(s.pedidoNum||s.pedidoId)}</b> · ${esc(s.cliente||'')}${ped?.prodRef||ped?.ref?' · Ref. '+esc(ped.prodRef||ped.ref):''}${ped?.pais?' · '+esc(ped.pais):''}<span style="float:right">${ps.length} palets · ${cajasP+cajasPk} cajas</span></div><table><thead><tr><th>Nº</th><th>Palet</th><th>Producto</th><th>Lote</th><th>Cad.</th><th>Cajas</th><th>Ubic.</th><th>Kg</th><th>✓</th></tr></thead><tbody>${filas}${filasPk}</tbody></table>`};
+    });
+    const veh=[['Transportista',h.transportista],['Tractora',h.tractora],['Remolque',h.remolque],['Muelle',h.muelle]].map(([a,b])=>`<span><b>${a}:</b> ${esc(b||'—')}</span>`).join('');
+    const cuerpo=det?bloques.map(b=>b.det).join(''):`<table><thead><tr><th>Orden</th><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Palets</th><th>Cajas</th><th>Picking</th><th>Kg</th></tr></thead><tbody>${bloques.map(b=>b.res).join('')}<tr class="tot"><td colspan="4">TOTAL</td><td class="r">${totP}</td><td class="r">${totC}</td><td class="r">${totPk||''}</td><td class="r">${totK?totK.toFixed(1):''}</td></tr></tbody></table>`;
+    const w=window.open('','_blank','width=960,height=700'); if(!w){toast('⚠️ El navegador bloqueó la ventana de impresión');return;}
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Packing List ${esc(h.cargaNumero||'')}</title><style>body{font-family:Arial,sans-serif;margin:12mm;color:#111;font-size:12px}h1{font-size:20px;margin:0 0 4px}.meta{display:flex;flex-wrap:wrap;gap:6px 18px;margin:6px 0 12px;font-size:12px}table{width:100%;border-collapse:collapse;margin-bottom:10px}th,td{border:1px solid #444;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eee;font-size:11px}.r{text-align:right}.chk{text-align:center;font-size:15px;width:24px}small{color:#444}.ped{background:#f3f3f3;border:1px solid #444;border-bottom:0;padding:5px 7px;margin-top:10px}.ped+table{margin-top:0}.pk td{background:#fff8dc}.tot td{font-weight:800;background:#eee}.firmas{display:flex;gap:30px;margin-top:28px}.firmas div{flex:1;border-top:1px solid #111;padding-top:4px;font-size:11px}tr{page-break-inside:avoid}@media print{@page{size:A4;margin:10mm}body{margin:0}}</style></head><body><h1>PACKING LIST · Carga ${esc(h.cargaNumero||'')} <small>(${det?'detallado':'resumido'})</small></h1><div class="meta"><span><b>Fecha:</b> ${fecha}</span><span><b>Pedidos:</b> ${g.length}</span><span><b>Palets:</b> ${totP}</span><span><b>Cajas:</b> ${totC+totPk}</span>${totK?`<span><b>Kg:</b> ${totK.toFixed(1)}</span>`:''}${veh}</div><div style="margin-bottom:6px;color:#444">Orden de carga: 1º = primero en cargarse.</div>${cuerpo}${det?`<div class="tot" style="font-weight:800;text-align:right">TOTAL: ${totP} palets · ${totC+totPk} cajas${totK?' · '+totK.toFixed(1)+' kg':''}</div>`:''}<div class="firmas"><div>Expedición</div><div>Transportista</div></div><script>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+    w.document.close();
+  };
+
+  window.cpRenderSalidas = function(){
+    const el=$('cpSalidasLista'); if(!el) return;
+    const q=up($('cpPalBusca')?.value);
+    const ms=s=>createdValue(s.createdAt)||Date.parse(s.confirmedAt||'')||Date.now();
+    const rows=salidasPalets.filter(s=>!q||[s.id,s.cargaId,s.pedidoNum,s.cliente,s.transportista,s.muelle,s.tractora,s.remolque,(s.palets||[]).join(' ')].join(' ').toUpperCase().includes(q));
+    const grupos=new Map(); rows.forEach(s=>{const k=s.cargaId||s.id; if(!grupos.has(k))grupos.set(k,[]); grupos.get(k).push(s);});
+    const cargas=[...grupos.values()].map(g=>({g,t:Math.max(...g.map(ms))})).sort((a,b)=>b.t-a.t);
+    el.innerHTML=cargas.length?cargas.map(({g,t})=>{
+      g.sort((a,b)=>(a.ordenCarga||999)-(b.ordenCarga||999)||ms(a)-ms(b)); const h=g[0], nPal=g.reduce((a,s)=>a+(s.palets||[]).length,0), nCaj=g.reduce((a,s)=>a+(s.picking||[]).reduce((b,r)=>b+(parseInt(r.cajas)||0),0),0);
+      const veh=[h.transportista,h.tractora,h.remolque,h.muelle?('Muelle '+h.muelle):''].filter(Boolean).map(esc).join(' · ')||'—';
+      return `<details class="cp-p-chip" style="display:block;margin-bottom:6px"><summary style="cursor:pointer"><b>Carga ${esc(h.cargaNumero||'')}</b> · ${new Date(t).toLocaleString('es-ES')} · ${g.length} pedido${g.length===1?'':'s'} · ${nPal} palets${nCaj?' + '+nCaj+' cajas picking':''}<div style="font-size:11px;color:#73808c">${veh}</div></summary><div style="padding:6px 0"><button class="cp-p-btn" onclick="cpImprimirCarga('${esc(h.cargaId||h.id)}','resumen')">🖨 Resumido</button> <button class="cp-p-btn primary" onclick="cpImprimirCarga('${esc(h.cargaId||h.id)}','detalle')">🖨 Detallado</button></div>${g.map((s,k)=>`<div style="padding:5px 0 5px 14px;border-top:1px solid #eee"><b>${k+1}º · ${esc(s.pedidoNum||s.pedidoId||'')}</b> · ${esc(s.cliente||'')}<div style="font-size:11px;color:#73808c">Palets: ${(s.palets||[]).map(esc).join(', ')||'—'}${(s.picking||[]).length?'<br>Picking: '+s.picking.map(r=>esc(r.paletId)+' ('+esc(r.cajas)+' cajas)').join(', '):''}</div></div>`).join('')}</details>`;
+    }).join(''):'<div style="padding:20px;text-align:center;color:#7a8794">Aún no hay Packing Lists confirmados.</div>';
+  };
+
   window.cpRenderPalets = function(){
     const q=up($('cpPalBusca')?.value), st=$('cpPalEstado')?.value||'', pid=$('cpPalPedido')?.value||'';
     cpPedidoOptions('cpPalPedido',true); if($('cpPalPedido')) $('cpPalPedido').value=pid;
@@ -50,8 +86,7 @@
     palets.forEach(x=>{if(counts[x.estado]!=null) counts[x.estado]++;});
     $('cpStatDisp').textContent=counts.disponible; $('cpStatRes').textContent=counts.reservado; $('cpStatPrep').textContent=counts.preparando; $('cpStatLoad').textContent=counts.cargado;
     const rows=palets.filter(x=>{
-      if(st==='__sin_ubicacion__' && (x.estado==='cargado' || String(x.ubicacion||'').trim())) return false;
-      if(st && st!=='__sin_ubicacion__' && x.estado!==st) return false;
+      if(st && x.estado!==st) return false;
       if(pid && String(x.pedidoId)!==String(pid)) return false;
       if(q){ const txt=[x.id,x.pedidoNum,x.cliente,x.producto,x.formato,x.lote,x.ubicacion,x.prodRef,x.sscc].join(' ').toUpperCase(); if(!txt.includes(q)) return false; }
       return true;
@@ -62,61 +97,8 @@
       const prodLabel=mixto?'MIXTO':(x.producto||'');
       return `<tr><td><span class="cp-p-code">${esc(x.id)}</span>${x.sscc?`<div style="font-size:9px;color:#74808b">SSCC ${esc(x.sscc)}</div>`:''}</td><td>${esc(x.pedidoNum||'STOCK')}<div style="font-size:10px;color:#73808c">${esc(x.cliente||'')}</div></td><td><b>${esc(prodLabel)}</b><div style="font-size:10px;color:#73808c">${esc(x.formato||'')}</div></td><td>${cont}</td><td>${esc(x.lote||'—')}</td><td>${esc(x.ubicacion||'—')}</td><td><span class="cp-p-status ${esc(x.estado||'')}">${esc(palletStatusLabel(x.estado))}</span></td><td><button class="cp-p-btn" onclick="cpImprimirEtiqueta('${esc(x.id)}')">🏷️</button> <button class="cp-p-btn" onclick="cpCambiarUbicacion('${esc(x.id)}')">📍</button> <button class="cp-p-btn" onclick="cpVerPalet('${esc(x.id)}')">Ver</button> <button class="cp-p-btn" onclick="cpEditarPalet('${esc(x.id)}')">✏️ Editar</button> <button class="cp-p-btn danger" onclick="cpBorrarPalet('${esc(x.id)}')">🗑️ Borrar</button></td></tr>`;
     }).join('')}</tbody></table>`:'<div style="padding:35px;text-align:center;color:#7a8794">No hay palets que coincidan con los filtros.</div>';
+    cpRenderSalidas();
   };
-  window.cpPalQuickFilter=function(estado){
-    const el=$('cpPalEstado'); if(el) el.value=estado||'';
-    cpRenderPalets();
-  };
-
-  function cpSalidaFecha(x){const v=x?.confirmedAt||x?.createdAt;return v?.seconds?new Date(v.seconds*1000).toLocaleString('es-ES'):(v?new Date(v).toLocaleString('es-ES'):'—');}
-  function cpPackingRecords(){
-    const actuales=[...(salidasPalets||[])];
-    // Compatibilidad: el flujo antiguo guardaba la carga en pedidos.cargasHistorial
-    // pero no creaba un documento en salidas_palets.
-    (pedidos||[]).forEach(p=>(p.cargasHistorial||[]).forEach((c,i)=>{
-      const id='LEGACY-'+String(p.id)+'-'+i;
-      if(actuales.some(x=>String(x.id)===id))return;
-      actuales.push({id,legacy:true,cargaId:c.cargaId||('LEGACY-'+(c.fecha||'sin-fecha')+'-'+(c.cargaNumero||c.numero||i)),cargaNumero:c.cargaNumero||c.numero||'',pedidoId:p.id,pedidoNum:p.num||p.id,cliente:p.grupo||'',palets:[],picking:(parseInt(c.pickingCajas)||0)>0?[{id:id+'-PICK',paletId:'',pedidoId:p.id,pedidoNum:p.num||p.id,producto:p.producto||'',cajas:parseInt(c.pickingCajas)||0}]:[],estado:'cargado',muelle:c.muelle||p.muelle||'',transportista:c.transportista||p.transportista||'',tractora:c.mat1||p.mat1||'',remolque:c.mat2||p.mat2||'',createdAt:c.fecha||p.cargadoAt||p.fecha,confirmedAt:c.fecha||p.cargadoAt||p.fecha,legacyDetalle:c});
-    }));
-    (pedidos||[]).forEach(p=>{if(!p.packingListId||actuales.some(x=>String(x.id)===String(p.packingListId)))return;actuales.push({id:p.packingListId,cargaId:p.packingListId,cargaNumero:p.cargaNumero||'',pedidoId:p.id,pedidoNum:p.num||p.id,cliente:p.grupo||'',palets:[],picking:[],estado:'cargado',muelle:p.muelle||'',transportista:p.transportista||'',tractora:p.mat1||'',remolque:p.mat2||'',createdAt:p.cargadoAt||p.fecha,confirmedAt:p.cargadoAt||p.fecha});});
-    return actuales;
-  }
-  window.cpAbrirPackingLists=function(){cpPaletsVista='salidas';$('cpPaletsView').style.display='none';$('cpPackingView').style.display='';cpRenderPackingLists();};
-  window.cpVolverPalets=function(){cpPaletsVista='palets';$('cpPackingView').style.display='none';$('cpPaletsView').style.display='';cpRenderPalets();};
-  function cpPackingGroups(){
-    const groups=new Map();
-    cpPackingRecords().forEach(x=>{const key=String(x.cargaId||x.id);if(!groups.has(key))groups.set(key,{key,items:[],palets:[],picking:[]});const g=groups.get(key);g.items.push(x);(x.palets||[]).forEach(id=>{if(!g.palets.includes(id))g.palets.push(id);});g.picking.push(...(x.picking||[]));});
-    return [...groups.values()].map(g=>{const first=g.items[0]||{},ordenados=g.items.slice().sort((a,b)=>(a.ordenPedido||999)-(b.ordenPedido||999));const secuencia=ordenados.flatMap(x=>(x.secuenciaCarga||[...(x.palets||[]).map((id,i)=>({orden:i+1,tipo:'palet',paletId:id})),...(x.picking||[]).map((p,i)=>({orden:(x.palets||[]).length+i+1,tipo:'picking',paletId:p.paletId,cajas:p.cajas}))]).map(s=>({...s,pedidoNum:x.pedidoNum||x.pedidoId||'',cliente:x.cliente||'',ordenPedido:x.ordenPedido||999}))).sort((a,b)=>a.ordenPedido-b.ordenPedido||a.orden-b.orden);return {...g,first,clientes:[...new Set(g.items.map(x=>x.cliente).filter(Boolean))],pedidos:ordenados.map(x=>x.pedidoNum||x.pedidoId).filter(Boolean),estado:[...new Set(g.items.map(x=>x.estado).filter(Boolean))].join(' / ')||'—',secuencia,fecha:g.items.slice().sort((a,b)=>createdValue(b.confirmedAt||b.createdAt)-createdValue(a.confirmedAt||a.createdAt))[0]};});
-  }
-  window.cpRenderPackingLists=function(){
-    const q=up($('cpPackingBusca')?.value),st=$('cpPackingEstado')?.value||'';
-    const rows=cpPackingGroups().filter(g=>{if(st&&!g.items.some(x=>String(x.estado||'')===st))return false;const txt=[g.key,g.first.cargaNumero,g.pedidos.join(' '),g.clientes.join(' '),g.items.map(x=>[x.muelle,x.transportista,x.tractora,x.remolque].join(' ')).join(' ')].join(' ').toUpperCase();return !q||txt.includes(q);}).sort((a,b)=>createdValue(b.fecha.confirmedAt||b.fecha.createdAt)-createdValue(a.fecha.confirmedAt||a.fecha.createdAt));
-    const el=$('cpPackingLista');if(!el)return;
-    el.innerHTML=rows.length?`<table><thead><tr><th>Packing List</th><th>Carga</th><th>Pedidos en orden</th><th>Clientes</th><th>Palets</th><th>Picking</th><th>Muelle / transporte</th><th>Fecha</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>${rows.map(g=>{const pk=g.picking.reduce((a,p)=>a+(parseInt(p.cajas)||0),0),log=[...new Set(g.items.flatMap(x=>[x.muelle,x.transportista,x.tractora,x.remolque].filter(Boolean)))].join(' · ');return `<tr><td><b class="cp-p-code">${esc(g.key)}</b></td><td>${esc(g.first.cargaNumero||g.key)}</td><td>${esc(g.pedidos.map((p,i)=>(i+1)+'. '+p).join(' · ')||'—')}</td><td>${esc(g.clientes.join(' · ')||'—')}</td><td>${g.palets.length}</td><td>${pk?pk+' cajas':'—'}</td><td>${esc(log||'—')}</td><td>${esc(cpSalidaFecha(g.fecha))}</td><td><span class="cp-p-status ${esc(g.first.estado||'')}">${esc(g.estado)}</span></td><td><button class="cp-p-btn" onclick="cpVerPackingList('${esc(g.key)}')">Ver detalle</button></td></tr>`;}).join('')}</tbody></table>`:'<div style="padding:35px;text-align:center;color:#7a8794">Todavía no hay Packing Lists creados.</div>';
-  };
-  window.cpVerPackingList=function(id){
-    const g=cpPackingGroups().find(v=>String(v.key)===String(id));if(!g)return;const x=g.first;
-    const pd=g.palets.map(id=>palets.find(p=>String(p.id)===String(id))||{id}).map(p=>`<tr><td>${esc(p.id)}</td><td>${esc(p.producto||'')}</td><td>${esc(p.cajas||0)}</td><td>${esc(p.lote||'—')}</td><td>${esc(p.ubicacion||'—')}</td></tr>`).join('');
-    const kd=g.picking.map(p=>`<tr><td>${esc(p.paletId||'')}</td><td>${esc(p.producto||'')}</td><td>${esc(p.cajas||0)}</td><td>${esc(p.lote||'—')}</td></tr>`).join('');
-    const log=[...new Set(g.items.flatMap(v=>[v.muelle,v.transportista,v.tractora,v.remolque].filter(Boolean)))].join(' · ');
-    const ordenHtml=g.secuencia.map((s,i)=>`<tr><td><b>${i+1}</b></td><td>${esc(s.cliente)}</td><td>${esc(s.pedidoNum)}</td><td>${esc(s.tipo==='picking'?'Picking':'Palet completo')}</td><td>${esc(s.paletId||'')}</td><td>${esc(s.cajas||'—')}</td></tr>`).join('');
-    $('cpPackingDetalle').innerHTML=`<div class="cp-p-note"><b>${esc(g.key)}</b> · Carga ${esc(x.cargaNumero||g.key)} · ${esc(g.estado)}<br>Pedidos: <b>${esc(g.pedidos.map((p,i)=>(i+1)+'. '+p).join(' · ')||'—')}</b><br>Clientes: <b>${esc(g.clientes.join(' · ')||'—')}</b><br>Fecha: ${esc(cpSalidaFecha(g.fecha))} · Logística: ${esc(log||'—')}<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="cp-p-btn primary" onclick="cpImprimirPicking('${esc(g.key)}','resumido')">🖨️ Picking resumido</button><button class="cp-p-btn" onclick="cpImprimirPicking('${esc(g.key)}','detallado')">🖨️ Picking detallado</button></div></div><h3>Orden de carga</h3><table><thead><tr><th>Orden</th><th>Cliente</th><th>Pedido</th><th>Tipo</th><th>Palet</th><th>Cajas</th></tr></thead><tbody>${ordenHtml||'<tr><td colspan="6">Sin secuencia registrada</td></tr>'}</tbody></table><h3>Palets completos (${g.palets.length})</h3><table><thead><tr><th>Palet</th><th>Producto</th><th>Cajas</th><th>Lote</th><th>Ubicación</th></tr></thead><tbody>${pd||'<tr><td colspan="5">Ninguno</td></tr>'}</tbody></table><h3>Picking (${g.picking.reduce((a,p)=>a+(parseInt(p.cajas)||0),0)} cajas)</h3><table><thead><tr><th>Palet origen</th><th>Producto</th><th>Cajas</th><th>Lote</th></tr></thead><tbody>${kd||'<tr><td colspan="4">Ninguno</td></tr>'}</tbody></table>`;
-    $('cpPackingDetailModal').classList.add('open');
-  };
-  window.cpImprimirPicking=function(id,modo='detallado'){
-    const g=cpPackingGroups().find(v=>String(v.key)===String(id));if(!g)return;
-    const lineas=g.picking.map((p,i)=>{const item=g.items.find(x=>(x.picking||[]).some(y=>String(y.id||'')===String(p.id||'')))||g.items.find(x=>String(x.pedidoId)===String(p.pedidoId))||{};return {...p,orden:i+1,cliente:item.cliente||'',pedidoNum:item.pedidoNum||p.pedidoNum||p.pedidoId||''};});
-    const title=modo==='resumido'?'Picking resumido':'Picking detallado';
-    let rows='';
-    if(modo==='resumido'){
-      const m=new Map();lineas.forEach(p=>{const k=[p.cliente,p.pedidoNum,p.producto,p.formato].join('|');const v=m.get(k)||{...p,cajas:0};v.cajas+=(parseInt(p.cajas)||0);m.set(k,v);});
-      rows=[...m.values()].map((p,i)=>`<tr><td>${i+1}</td><td>${esc(p.cliente||'—')}</td><td>${esc(p.pedidoNum||'—')}</td><td>${esc(p.producto||'—')}</td><td>${esc(p.formato||'—')}</td><td><b>${esc(p.cajas)}</b></td></tr>`).join('');
-    }else rows=lineas.map(p=>`<tr><td>${p.orden}</td><td>${esc(p.cliente||'—')}</td><td>${esc(p.pedidoNum||'—')}</td><td>${esc(p.paletId||'—')}</td><td>${esc(p.producto||'—')}</td><td>${esc(p.formato||'—')}</td><td>${esc(p.lote||'—')}</td><td>${esc(p.caducidad||'—')}</td><td><b>${esc(p.cajas||0)}</b></td></tr>`).join('');
-    const head=modo==='resumido'?'<th>#</th><th>Cliente</th><th>Pedido</th><th>Producto</th><th>Formato</th><th>Cajas</th>':'<th>Orden</th><th>Cliente</th><th>Pedido</th><th>Palet origen</th><th>Producto</th><th>Formato</th><th>Lote</th><th>Caducidad</th><th>Cajas</th>';
-    const w=window.open('','_blank','width=1100,height=750');if(!w){toast('⚠️ El navegador bloqueó la ventana de impresión');return;}
-    w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)} · ${esc(g.key)}</title><style>body{font-family:Arial,sans-serif;color:#172b3a;margin:18mm;font-size:11px}h1{font-size:20px;margin:0 0 4px}h2{font-size:13px;margin:0 0 14px;color:#526879}.meta{line-height:1.6;border:1px solid #ccd7df;padding:9px;margin-bottom:14px}table{width:100%;border-collapse:collapse}th{background:#eaf1f8;text-align:left;font-size:10px}th,td{border:1px solid #ccd7df;padding:6px}td:last-child{text-align:right}@media print{@page{size:A4 landscape;margin:10mm}body{margin:0}}</style></head><body><h1>${esc(title)}</h1><h2>${esc(g.key)} · Carga ${esc(g.first.cargaNumero||g.key)}</h2><div class="meta"><b>Clientes:</b> ${esc(g.clientes.join(' · ')||'—')}<br><b>Pedidos:</b> ${esc(g.pedidos.join(' · ')||'—')}<br><b>Fecha:</b> ${esc(cpSalidaFecha(g.fecha))} · <b>Logística:</b> ${esc([...new Set(g.items.flatMap(x=>[x.muelle,x.transportista,x.tractora,x.remolque].filter(Boolean)))].join(' · ')||'—')}<br><b>Total picking:</b> ${g.picking.reduce((a,p)=>a+(parseInt(p.cajas)||0),0)} cajas</div><table><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${modo==='resumido'?6:9}">No hay picking en esta carga.</td></tr>`}</tbody></table><script>setTimeout(()=>window.print(),180)<\/script></body></html>`);w.document.close();
-  };
-  window.cpCerrarPackingDetalle=function(){$('cpPackingDetailModal').classList.remove('open');};
 
   function cpPedidoLineaOptions(p){
     const lines=[{idx:'main',producto:p?.producto||'',formato:p?.formato||'',ref:p?.prodRef||p?.ref||'',pais:p?.pais||''},...(p?.productosExtra||[]).map((x,i)=>({idx:String(i),producto:x.producto||'',formato:x.formato||'',ref:x.prodRef||'',pais:x.pais||p?.pais||''}))];
@@ -314,22 +296,11 @@
   function _palletsForOrder(p){ return cpPaletsCompatibles(p); }
   function cpRenderPedidosCarga(){
     const box=$('cps-pedidos-carga'); if(!box)return;
-    box.innerHTML=salidaPedidos.length ? salidaPedidos.map(id=>{const p=pedidoById(id), active=String(id)===String(salidaPedidoActivo); return `<div class="cp-p-chip" style="display:flex;align-items:center;gap:8px;${active?'border-color:#F0B400;':''}"><button type="button" class="cp-p-btn" onclick="cpActivarPedidoSalida('${esc(id)}')">${active?'▶ ':''}${esc(pedidoTxt(p))}</button><span style="flex:1;color:#77838e">${esc(p?.producto||'')} · ${esc(p?.productosExtra?.length?((p.productosExtra.length+1)+' artículos'):'1 artículo')}</span><button type="button" class="cp-p-btn danger" onclick="cpQuitarPedidoSalida('${esc(id)}')">Quitar</button></div>`;}).join(''):'<div style="padding:10px;color:#77838e">Añade uno o varios pedidos para preparar la carga del camión.</div>';
+    box.innerHTML=salidaPedidos.length ? salidaPedidos.map(id=>{const p=pedidoById(id), active=String(id)===String(salidaPedidoActivo); const pos=salidaPedidos.indexOf(id); return `<div class="cp-p-chip" style="display:flex;align-items:center;gap:8px;${active?'border-color:#F0B400;':''}"><b style="min-width:22px;text-align:center" title="Orden de carga">${pos+1}º</b><button type="button" class="cp-p-btn" ${pos===0?'disabled':''} onclick="cpMoverPedidoSalida('${esc(id)}',-1)">▲</button><button type="button" class="cp-p-btn" ${pos===salidaPedidos.length-1?'disabled':''} onclick="cpMoverPedidoSalida('${esc(id)}',1)">▼</button><button type="button" class="cp-p-btn" onclick="cpActivarPedidoSalida('${esc(id)}')">${active?'▶ ':''}${esc(pedidoTxt(p))}</button><span style="flex:1;color:#77838e">${esc(p?.producto||'')} · ${esc(p?.productosExtra?.length?((p.productosExtra.length+1)+' artículos'):'1 artículo')}</span><button type="button" class="cp-p-btn danger" onclick="cpQuitarPedidoSalida('${esc(id)}')">Quitar</button></div>`;}).join(''):'<div style="padding:10px;color:#77838e">Añade uno o varios pedidos para preparar la carga del camión.</div>';
   }
-  window.cpAnadirPedidoSalida=async function(){
-    const id=$('cps-pedido-add')?.value;if(!id)return;
-    if(salidaPedidos.some(x=>String(x)===String(id))){toast('ℹ️ Ese pedido ya está en esta carga');return;}
-    const p=pedidoById(id);if(!p)return;
-    if(String(p.status)==='cargado'){toast('⛔ El pedido '+(p.num||id)+' ya está cargado y no puede repetirse');return;}
-    try{
-      const previo=(salidasPalets||[]).find(x=>String(x.pedidoId)===String(id));
-      if(previo){toast('⛔ El pedido '+(p.num||id)+' ya pertenece al Packing List '+(previo.cargaId||previo.id));return;}
-      const snap=await colSalidasPalets.where('pedidoId','==',String(id)).limit(1).get();
-      if(!snap.empty){toast('⛔ El pedido '+(p.num||id)+' ya tiene un Packing List creado');return;}
-      if((p.cargasHistorial||[]).length && String(p.status)==='cargado'){toast('⛔ El pedido '+(p.num||id)+' ya tiene cargas registradas');return;}
-      salidaPedidos.push(String(id));salidaPorPedido.set(String(id),{palets:[],picking:[]});salidaPedidoActivo=String(id);cpCargarPreparacion(id);$('cps-pedido').value=id;cpRenderPedidosCarga();cpSalidaPedidoChange(true);$('cps-pedido-add').value='';
-    }catch(e){console.error('Comprobación Packing List:',e);toast('❌ No se pudo comprobar si el pedido ya estaba cargado');}
-  };
+  window.cpAnadirPedidoSalida=function(){ const id=$('cps-pedido-add')?.value; if(!id)return; if(!salidaPedidos.some(x=>String(x)===String(id))){salidaPedidos.push(String(id));salidaPorPedido.set(String(id),{palets:[],picking:[]});} salidaPedidoActivo=String(id); cpCargarPreparacion(id); $('cps-pedido').value=id; cpRenderPedidosCarga(); cpSalidaPedidoChange(true); $('cps-pedido-add').value=''; };
+  window.cpMoverPedidoSalida=function(id,d){ cpGuardarPreparacionActiva(); const i=salidaPedidos.indexOf(String(id)), j=i+d; if(i<0||j<0||j>=salidaPedidos.length)return; [salidaPedidos[i],salidaPedidos[j]]=[salidaPedidos[j],salidaPedidos[i]]; cpRenderPedidosCarga(); };
+  window.cpMoverPaletSalida=function(i,d){ const j=i+d; if(j<0||j>=salidaPalets.length)return; [salidaPalets[i],salidaPalets[j]]=[salidaPalets[j],salidaPalets[i]]; cpRenderSalidaList(); };
   window.cpActivarPedidoSalida=function(id){ cpGuardarPreparacionActiva(); salidaPedidoActivo=String(id); cpCargarPreparacion(id); $('cps-pedido').value=id; cpRenderPedidosCarga(); cpSalidaPedidoChange(true); };
   window.cpQuitarPedidoSalida=function(id){ cpGuardarPreparacionActiva(); salidaPedidos=salidaPedidos.filter(x=>String(x)!==String(id)); salidaPorPedido.delete(String(id)); if(String(salidaPedidoActivo)===String(id)){salidaPedidoActivo=salidaPedidos[0]||'';cpCargarPreparacion(salidaPedidoActivo);$('cps-pedido').value=salidaPedidoActivo;} cpRenderPedidosCarga(); cpSalidaPedidoChange(true); };
   window.cpNuevaSalida=function(){ salidaPalets=[]; salidaPicking=[]; salidaPedidos=[]; salidaPedidoActivo=''; salidaPorPedido=new Map(); salidaCargaId='C'+Date.now().toString(36).toUpperCase(); cpPedidoOptions('cps-pedido-add',false); $('cps-pedido').innerHTML='<option value="">Añade un pedido</option>'; ['cps-cliente','cps-muelle','cps-trans','cps-tractora','cps-remolque'].forEach(id=>$(id).value=''); if($('cps-carga-num'))$('cps-carga-num').value=String((parseInt(localStorage.getItem('cargasProUltimaCarga')||'0')||0)+1); if($('cps-modo'))$('cps-modo').value='palet'; cpRenderPedidosCarga(); $('cps-info').textContent='Añade uno o varios pedidos para preparar la carga.'; $('cps-lista').innerHTML=''; $('cps-picking').innerHTML=''; $('cpSalidaModal').classList.add('open'); cpModoSalidaChange(); setTimeout(()=>$('cps-pedido-add')?.focus(),100); };
@@ -343,7 +314,7 @@
   };
   function cpRenderSalidaList(){
     const all=salidaPalets.map(id=>palets.find(x=>x.id===id)).filter(Boolean);
-    $('cps-lista').innerHTML=all.length?'<div style="font-weight:800;margin:8px 0 5px">📦 Palets completos seleccionados</div>'+all.map(x=>`<div class="cp-p-chip"><span><b class="cp-p-code">${esc(x.id)}</b> · ${esc(x.producto||'')} · ${esc(x.cajas||0)} cajas · lote ${esc(x.lote||'—')}</span><button class="cp-p-btn danger" onclick="cpQuitarSalida('${esc(x.id)}')">Quitar</button></div>`).join(''):'<div style="padding:12px;text-align:center;color:#77838e">No hay palets completos seleccionados.</div>';
+    $('cps-lista').innerHTML=all.length?'<div style="font-weight:800;margin:8px 0 5px">📦 Palets completos seleccionados</div>'+all.map((x,i)=>`<div class="cp-p-chip"><span><b>${i+1}º</b> <button class="cp-p-btn" ${i===0?'disabled':''} onclick="cpMoverPaletSalida(${i},-1)">▲</button><button class="cp-p-btn" ${i===all.length-1?'disabled':''} onclick="cpMoverPaletSalida(${i},1)">▼</button> <b class="cp-p-code">${esc(x.id)}</b> · ${esc(x.producto||'')} · ${esc(x.cajas||0)} cajas · lote ${esc(x.lote||'—')}</span><button class="cp-p-btn danger" onclick="cpQuitarSalida('${esc(x.id)}')">Quitar</button></div>`).join(''):'<div style="padding:12px;text-align:center;color:#77838e">No hay palets completos seleccionados.</div>';
   }
   function cpRenderPicking(){
     const el=$('cps-picking'); if(!el)return;
@@ -407,17 +378,15 @@
   };
   async function cpConfirmarSalidaPedido(){
     const p=pedidoById($('cps-pedido').value); if(!p){toast('⚠️ Selecciona un pedido');return;}
-    if((p.cargasHistorial||[]).length || p.packingListId){throw new Error('El pedido '+(p.num||p.id)+' ya tiene una carga registrada');}
     if(!salidaPalets.length && !salidaPicking.length){toast('⚠️ Selecciona palets completos o añade picking');return;}
     const pickingLocal=salidaPicking.filter(r=>(parseInt(r.cajas)||0)>0); if(salidaPicking.length!==pickingLocal.length){toast('⚠️ Indica las cajas a extraer en todos los palets de picking o elimínalos');return;}
     const ts=Date.now(); const sid=salidaCargaId ? (salidaCargaId+'-'+String(p.id)) : ('S'+ts.toString(36).toUpperCase()); const ids=[...new Set(salidaPalets)];
     const muelle=up($('cps-muelle').value), transportista=up($('cps-trans').value), tractora=up($('cps-tractora').value), remolque=up($('cps-remolque').value);
-    const ordenPedido=Math.max(1,salidaPedidos.findIndex(id=>String(id)===String(p.id))+1);
     // Firestore Compat no admite tx.get(query); tomamos esta instantánea antes de la transacción.
     const loadedSnap=await colPalets.where('pedidoId','==',String(p.id)).where('estado','==','cargado').get();
     const loadedBefore=loadedSnap.docs.map(d=>d.data());
     try{ await db.runTransaction(async tx=>{
-      const orderRef=col.doc(String(p.id)), orderSnap=await tx.get(orderRef); if(!orderSnap.exists)throw new Error('El pedido ya no existe'); const current=orderSnap.data(); if(String(current.status)==='cargado')throw new Error('El pedido ya está cargado y no puede incluirse otra vez en un Packing List');
+      const orderRef=col.doc(String(p.id)), orderSnap=await tx.get(orderRef); if(!orderSnap.exists)throw new Error('El pedido ya no existe'); const current=orderSnap.data();
       const refs=[...ids.map(id=>colPalets.doc(id)),...pickingLocal.map(r=>colPalets.doc(r.paletId))]; const uniqueRefs=[...new Map(refs.map(r=>[r.path,r])).values()]; const snaps=[]; for(const ref of uniqueRefs)snaps.push(await tx.get(ref));
       const byId=new Map(snaps.filter(s=>s.exists).map(s=>[s.id,s.data()]));
       const selected=[]; for(const id of ids){const x=byId.get(id);if(!x)throw new Error('Palet inexistente: '+id);if(x.pedidoId&&String(x.pedidoId)!==String(p.id))throw new Error('Palet '+id+' no pertenece al pedido');if(!['disponible','reservado','preparando'].includes(x.estado))throw new Error('Palet '+id+' ya no está disponible');if(!cpPaletEncajaEnPedido(x,current))throw new Error('Producto/formato incompatible en '+id);selected.push(x);}
@@ -436,44 +405,26 @@
       const done=lineas.length>0&&lineas.every(l=>(l.uds<=0||l.cu>=l.uds)&&(l.cajas<=0||l.cc>=l.cajas));
       if(!done) throw new Error('El pedido '+(current.num||current.id)+' debe cargarse completo: incluye todos sus artículos y cajas');
       const now=nowISO();
-      const secuenciaCarga=[...ids.map((id,i)=>({orden:i+1,tipo:'palet',paletId:id,cajas:parseInt(byId.get(id)?.cajas)||0})),...pickNew.map((m,i)=>({orden:ids.length+i+1,tipo:'picking',paletId:m.paletId,cajas:m.cajas}))];
-      const salida={id:sid,cargaId:salidaCargaId||sid,cargaNumero:parseInt($('cps-carga-num')?.value)||1,ordenPedido,pedidoId:current.id,pedidoNum:current.num||'',cliente:up(current.grupo||''),palets:ids,picking:pickNew,secuenciaCarga,estado:'cargado',muelle,transportista,tractora,remolque,createdAt:firebase.firestore.FieldValue.serverTimestamp(),confirmedAt:now};
+      const salida={id:sid,cargaId:salidaCargaId||sid,cargaNumero:parseInt($('cps-carga-num')?.value)||1,ordenCarga:window._cpOrdenCarga||1,pedidoId:current.id,pedidoNum:current.num||'',cliente:up(current.grupo||''),palets:ids,picking:pickNew,estado:'cargado',muelle,transportista,tractora,remolque,createdAt:firebase.firestore.FieldValue.serverTimestamp(),confirmedAt:now};
       for(const id of ids){const x=byId.get(id);const ref=colPalets.doc(id);tx.update(ref,{estado:'cargado',pedidoId:x.pedidoId||current.id,pedidoNum:x.pedidoNum||current.num||'',cliente:x.cliente||up(current.grupo||''),assignedAtLoad:!x.pedidoId,assignedAtLoadPedidoId:!x.pedidoId?current.id:'',salidaId:sid,loadedAt:firebase.firestore.FieldValue.serverTimestamp(),cargaInfo:{pedidoId:current.id,pedidoNum:current.num||'',muelle,transportista,tractora,remolque}});tx.set(colMovLogistica.doc(),{paletId:id,accion:'cargado',estado:'cargado',salidaId:sid,pedidoId:current.id,pedidoNum:current.num||'',ts,fecha:now});}
-      for(const {x,n} of pickingValid){const ref=colPalets.doc(x.id),cajasAntes=parseInt(x.cajas)||0,rest=cajasAntes-n,udsAntes=parseInt(x.unidades)||0,udsPorCaja=cajasAntes>0?udsAntes/cajasAntes:0,udsRestantes=Math.max(0,Math.round(udsAntes-(n*udsPorCaja))); const reservas={...(x.reservasCajas||{})}; const rPrev=parseInt(reservas[current.id])||0; if(rPrev>0){reservas[current.id]=Math.max(rPrev-n,0);if(!reservas[current.id])delete reservas[current.id];} tx.update(ref,{cajas:rest,unidades:udsRestantes,estado:rest<=0?'agotado':'disponible',reservasCajas:reservas,lastPickingAt:firebase.firestore.FieldValue.serverTimestamp()});}
+      for(const {x,n} of pickingValid){const ref=colPalets.doc(x.id),rest=parseInt(x.cajas||0)-n; const reservas={...(x.reservasCajas||{})}; const rPrev=parseInt(reservas[current.id])||0; if(rPrev>0){reservas[current.id]=Math.max(rPrev-n,0);if(!reservas[current.id])delete reservas[current.id];} tx.update(ref,{cajas:rest,estado:rest<=0?'agotado':'disponible',reservasCajas:reservas,lastPickingAt:firebase.firestore.FieldValue.serverTimestamp()});}
       pickNew.forEach((m,i)=>{const src=pickingValid[i].x;tx.set(colMovLogistica.doc(),{paletId:m.paletId,accion:'picking',estado:src.estado, pedidoId:current.id,pedidoNum:current.num||'',salidaId:sid,cajas:m.cajas,producto:m.producto,formato:m.formato,lote:m.lote,caducidad:m.caducidad,ts,fecha:now});});
       tx.set(colSalidasPalets.doc(sid),salida);
-      tx.set(orderRef,{...current,packingListId:sid,udsCargados:mainU,cajasCargadas:mainC,productosExtra:ex,pickingCajasPreparadas:pickCajasDespues,pickingMovimientos:[...prevPick,...pickNew],status:'cargado',cargadoAt:now.slice(0,10),hora:current.hora||'',muelle:muelle||current.muelle||'',transportista:transportista||current.transportista||'',mat1:tractora||current.mat1||'',mat2:remolque||current.mat2||'',cargasHistorial:[...(current.cargasHistorial||[]),{fecha:now.slice(0,10),packingListId:sid,detalle:(ids.length?ids.length+' palets':'')+(pickNew.length?' + '+pickCajasNuevas+' cajas picking':''),palets:ids.length,pickingCajas:pickCajasNuevas,hora:current.hora||'',muelle,transportista,mat1:tractora,mat2:remolque}]});
-    });
-      // El palet de origen queda disponible con su cantidad real restante.
-      // Actualizamos la caché local y abrimos su etiqueta con el nuevo número
-      // de cajas; el listener de Firestore confirmará después el mismo estado.
-      const restos=[];
-      pickingLocal.forEach(r=>{
-        const local=palets.find(x=>String(x.id)===String(r.paletId));
-        const antes=parseInt(local?.cajas)||0, extraidas=parseInt(r.cajas)||0, rest=Math.max(antes-extraidas,0), udsAntes=parseInt(local?.unidades)||0, udsPorCaja=antes>0?udsAntes/antes:0;
-        if(local){ local.cajas=rest; local.unidades=Math.max(0,Math.round(udsAntes-(extraidas*udsPorCaja))); local.estado=rest?'disponible':'agotado'; }
-        if(rest>0) restos.push(String(r.paletId));
-      });
-      if(restos.length){
-        setTimeout(()=>restos.forEach((id,i)=>setTimeout(()=>cpImprimirEtiqueta(id),180*i)),220);
-        toast('🟢 Pedido '+(p.num||p.id)+' preparado · etiqueta actualizada del sobrante: '+restos.join(', '));
-      }else toast('🟢 Pedido '+(p.num||p.id)+' preparado · el palet de origen quedó agotado');
-      if(!window._cpCargaMulti){ cpCerrarSalida(); }
+      tx.set(orderRef,{...current,udsCargados:mainU,cajasCargadas:mainC,productosExtra:ex,pickingCajasPreparadas:pickCajasDespues,pickingMovimientos:[...prevPick,...pickNew],status:done?'cargado':current.status,cargadoAt:done?now.slice(0,10):current.cargadoAt||'',hora:current.hora||'',muelle:muelle||current.muelle||'',transportista:transportista||current.transportista||'',mat1:tractora||current.mat1||'',mat2:remolque||current.mat2||'',cargasHistorial:[...(current.cargasHistorial||[]),{fecha:now.slice(0,10),detalle:(ids.length?ids.length+' palets':'')+(pickNew.length?' + '+pickCajasNuevas+' cajas picking':''),palets:ids.length,pickingCajas:pickCajasNuevas,hora:current.hora||'',muelle,transportista,mat1:tractora,mat2:remolque}]});
+    }); if(!window._cpCargaMulti){ cpCerrarSalida(); } toast('🟢 Pedido '+(p.num||p.id)+' añadido a la carga '+(parseInt($('cps-carga-num')?.value)||1)+' · '+(ids.length?ids.length+' palets':'')+(pickingLocal.length?' + '+pickingLocal.reduce((a,r)=>a+r.cajas,0)+' cajas picking':''));
     }catch(e){console.error(e);throw e;}
   };
   window.cpConfirmarSalida=async function(){
-    if(cpConfirmandoSalida){toast('⏳ Ya se está confirmando esta carga');return;}
-    cpConfirmandoSalida=true;
     cpGuardarPreparacionActiva();
-    if(!salidaPedidos.length){cpConfirmandoSalida=false;toast('⚠️ Añade al menos un pedido a la carga');return;}
+    if(!salidaPedidos.length){toast('⚠️ Añade al menos un pedido a la carga');return;}
     const numero=Math.max(1,parseInt($('cps-carga-num')?.value)||1); const cargaId=salidaCargaId||('C'+Date.now().toString(36).toUpperCase());
     const total=salidaPedidos.length; let ok=0;
     window._cpCargaMulti=true;
     try{
-      for(const id of salidaPedidos){ $('cps-pedido').value=id; salidaPedidoActivo=String(id); cpCargarPreparacion(id); await cpConfirmarSalidaPedido(); ok++; }
+      for(const id of salidaPedidos){ window._cpOrdenCarga=salidaPedidos.indexOf(id)+1; $('cps-pedido').value=id; salidaPedidoActivo=String(id); cpCargarPreparacion(id); await cpConfirmarSalidaPedido(); ok++; }
       localStorage.setItem('cargasProUltimaCarga',String(numero)); cpCerrarSalida(); toast('🚚 Carga '+numero+' confirmada · '+ok+'/'+total+' pedidos');
     }catch(e){ toast('❌ La carga se detuvo tras '+ok+'/'+total+' pedidos: '+(e.message||e)); }
-    finally{ window._cpCargaMulti=false; cpConfirmandoSalida=false; }
+    finally{ window._cpCargaMulti=false; }
   };
 
   window.cpReabrirPedidoPalets=async function(pedidoId,{eliminar=false}={}){
@@ -522,20 +473,13 @@
     if(C>0){ cantidades.push(restantes); }
     const desired=cantidades.length;
     const loteRef=colProd.doc(String(lote.id));
-    // Compatibilidad con lotes antiguos sin paletIds. La transacción solo
-    // recibe DocumentReference; el documento de producción sigue siendo la
-    // fuente autoritativa en ejecuciones posteriores.
-    let legacyExistingIds=[];
-    try {
-      const legacySnap=await colPalets.where('produccionId','==',String(lote.id)).get();
-      legacyExistingIds=legacySnap.docs.map(d=>d.id);
-    } catch(e) { console.warn('No se pudo consultar palets existentes:',e); }
     try{
       const result=await db.runTransaction(async tx=>{
         const loteSnap=await tx.get(loteRef);
         if(!loteSnap.exists) throw new Error('El lote ya no existe');
         const currentLote=loteSnap.data();
-        const existingIds=[...new Set([...(currentLote.paletIds||[]).map(String),...legacyExistingIds.map(String)])];
+        const existingSnap=await tx.get(colPalets.where('produccionId','==',String(lote.id)));
+        const existingIds=existingSnap.docs.map(d=>d.id);
         const refs=existingIds.map(id=>colPalets.doc(id));
         const snaps=[]; for(const ref of refs) snaps.push(await tx.get(ref));
         const actuales=snaps.filter(s=>s.exists).map(s=>s.data());
@@ -606,7 +550,7 @@
     const cad=palets.filter(x=>x.estado!=='cargado'&&cpCadDate(x)&&cpCadDate(x).getTime()<=lim&&cpCadDate(x).getTime()>=now).length;
     $('opsPedidosPend').textContent=pend.length; $('opsPickingPend').textContent=pickingPend; $('opsPalDisponible').textContent=disp.length; $('opsPalPreparando').textContent=prep.length; $('opsPalSinUb').textContent=sinUb.length; $('opsCad30').textContent=cad;
     const inc=[];
-    if(sinUb.length) inc.push(`<button type="button" class="cp-ops-row cp-ops-link" onclick="cpOpsOpenPalets('__sin_ubicacion__')"><span>Palets sin ubicación física</span><span class="cp-ops-badge warn">${sinUb.length}</span></button>`);
+    if(sinUb.length) inc.push(`<div class="cp-ops-row"><span>Palets sin ubicación física</span><span class="cp-ops-badge warn">${sinUb.length}</span></div>`);
     if(cad) inc.push(`<div class="cp-ops-row"><span>Palets con caducidad en ≤ 30 días</span><span class="cp-ops-badge warn">${cad}</span></div>`);
     const deficit=pend.filter(p=>cpPickingPendiente(p)>0 && cpPaletsCompatibles(p).filter(x=>(parseInt(x.cajas)||0)>0).reduce((a,x)=>a+(parseInt(x.cajas)||0),0)<cpPickingPendiente(p));
     if(deficit.length) inc.push(`<div class="cp-ops-row"><span>Pedidos con falta de stock para picking</span><span class="cp-ops-badge danger">${deficit.length}</span></div>`);
@@ -620,7 +564,6 @@
     let recent=[]; try{const ms=await colMovLogistica.orderBy('ts','desc').limit(20).get(); recent=ms.docs.map(d=>({...d.data(),id:d.id}));}catch(e){recent=Array.isArray(window._cpMovCache)?window._cpMovCache:[];}
     $('opsMovimientos').innerHTML=recent.length?`<table class="cp-ops-table"><thead><tr><th>Fecha</th><th>Palet</th><th>Acción</th><th>Pedido</th><th>Detalle</th></tr></thead><tbody>${recent.slice(0,20).map(m=>`<tr><td>${esc(m.fecha||'')}</td><td><b>${esc(m.paletId||'')}</b></td><td>${esc(m.accion||'')}</td><td>${esc(m.pedidoNum||'')}</td><td>${esc(m.detalle||((m.cajas!=null?m.cajas+' cajas':'')))}</td></tr>`).join('')}</tbody></table>`:'<div class="cp-ops-row">El historial reciente aparecerá aquí al registrar movimientos.</div>';
   };
-  window.cpOpsOpenPalets=function(estado){ cerrarOperaciones(); abrirPalets({estado:estado||''}); };
   window.cpOpsUbicaciones=function(){ $('cpUbicacionesScreen').classList.add('open'); cpRenderUbicaciones(); };
   window.cerrarUbicaciones=function(){ $('cpUbicacionesScreen').classList.remove('open'); };
   window.cpRenderUbicaciones=function(){

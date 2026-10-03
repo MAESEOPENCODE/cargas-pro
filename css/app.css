@@ -2528,3 +2528,7 @@ body.operator-mode .nav-main{width:100%}
 .auth-submit{width:100%;margin-top:16px;padding:12px;border:0;border-radius:4px;background:#2A6FB0;color:#fff;font-size:14px;font-weight:800;cursor:pointer}.auth-submit:hover{background:#1F5A94}
 .auth-user{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:10px}.auth-logout{border:1px solid rgba(255,255,255,.35);border-radius:4px;background:rgba(255,255,255,.1);color:#fff;padding:6px 9px;font-size:10px;cursor:pointer}.auth-logout:hover{background:rgba(255,255,255,.2)}
 @media(max-width:699px){.auth-user{display:none}.auth-card{padding:24px}.auth-logout{font-size:9px;padding:5px 7px}}
+
+/* La cinta Navision siempre es visible en escritorio; el modo operario solo
+   simplifica la navegación en pantallas estrechas y tras resolver el rol. */
+@media (min-width:900px){body.operator-mode .nav-ribbon{display:flex!important}body.operator-mode .nav-pane{display:none!important}}

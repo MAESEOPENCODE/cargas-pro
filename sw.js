@@ -1,12 +1,13 @@
-const CACHE_NAME = 'cargas-pro-shell-v8';
+const CACHE_NAME = 'cargas-pro-shell-v15';
+const VERSION = '20261003-15';
 const APP_SHELL = [
-  './',
-  './index.html',
-  './css/app.css',
-  './js/00-watchdog.js',
-  './js/01-app.js',
-  './js/02-navigation.js',
-  './js/03-palets.js'
+  './?v='+VERSION,
+  './index.html?v='+VERSION,
+  './css/app.css?v='+VERSION,
+  './js/00-watchdog.js?v='+VERSION,
+  './js/01-app.js?v='+VERSION,
+  './js/02-navigation.js?v='+VERSION,
+  './js/03-palets.js?v='+VERSION
 ];
 
 self.addEventListener('install', event => {
@@ -43,6 +44,7 @@ self.addEventListener('fetch', event => {
 });
 
 self.addEventListener('message', event => {
+  if (event.data === 'SKIP_WAITING') { self.skipWaiting(); return; }
   if (event.data === 'CLEAR_CACHE') {
     caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key)))).then(() => {
       self.clients.matchAll().then(clients => clients.forEach(client => client.postMessage('CACHE_CLEARED')));

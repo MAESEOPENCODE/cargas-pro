@@ -498,20 +498,21 @@ function startPedidoListener(){ if (!db) return; col.limit(CP_HISTORY_LIMIT).onS
   });
   hideLoadingScreen();
   setSyncStatus('ok');
-  // ARRANQUE: Pedidos es el módulo principal de Cargas Pro.
-  // Entramos siempre en Confección al abrir la aplicación.
+  // ARRANQUE: mostrar el conjunto operativo completo para que tarjetas y tabla
+  // enseñen pedidos, estado y datos logísticos desde la pantalla principal.
+  // Después de la primera carga se conserva la pestaña elegida por el usuario.
   if(!window._initialRenderDone){
-    activeTab = 'pendientes';
+    activeTab = 'todos';
     window._initialRenderDone = true;
-    const hoy = new Date().toISOString().slice(0,10);
-    filtroHoyActivo = true;
-    document.getElementById('fFechaDesde').value = hoy;
-    document.getElementById('fFechaHasta').value = hoy;
-    const btn = document.getElementById('hoyBtn');
-    if(btn){ btn.style.background='var(--brand-primary)'; btn.style.color='var(--dhl-dark)'; btn.style.borderColor='var(--brand-primary-dark)'; }
+    filtroHoyActivo = false;
+    filtroMañanaActivo = false;
+    document.getElementById('fFechaDesde').value = '';
+    document.getElementById('fFechaHasta').value = '';
+    resetHoyBtn();
+    resetMañanaBtn();
   }
-  // Sincronizar navegación y breadcrumb con el módulo principal.
-  if (typeof setTab === 'function') setTab('pendientes');
+  // Sincronizar navegación y breadcrumb sin sobrescribir la pestaña activa.
+  if (typeof setTab === 'function') setTab(activeTab);
   else render();
 }, (err) => {
   clearTimeout(_loadTimeout);

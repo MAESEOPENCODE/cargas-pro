@@ -370,11 +370,26 @@
       const now=nowISO();
       const salida={id:sid,cargaId:salidaCargaId||sid,cargaNumero:parseInt($('cps-carga-num')?.value)||1,pedidoId:current.id,pedidoNum:current.num||'',cliente:up(current.grupo||''),palets:ids,picking:pickNew,estado:'cargado',muelle,transportista,tractora,remolque,createdAt:firebase.firestore.FieldValue.serverTimestamp(),confirmedAt:now};
       for(const id of ids){const x=byId.get(id);const ref=colPalets.doc(id);tx.update(ref,{estado:'cargado',pedidoId:x.pedidoId||current.id,pedidoNum:x.pedidoNum||current.num||'',cliente:x.cliente||up(current.grupo||''),assignedAtLoad:!x.pedidoId,assignedAtLoadPedidoId:!x.pedidoId?current.id:'',salidaId:sid,loadedAt:firebase.firestore.FieldValue.serverTimestamp(),cargaInfo:{pedidoId:current.id,pedidoNum:current.num||'',muelle,transportista,tractora,remolque}});tx.set(colMovLogistica.doc(),{paletId:id,accion:'cargado',estado:'cargado',salidaId:sid,pedidoId:current.id,pedidoNum:current.num||'',ts,fecha:now});}
-      for(const {x,n} of pickingValid){const ref=colPalets.doc(x.id),rest=parseInt(x.cajas||0)-n; const reservas={...(x.reservasCajas||{})}; const rPrev=parseInt(reservas[current.id])||0; if(rPrev>0){reservas[current.id]=Math.max(rPrev-n,0);if(!reservas[current.id])delete reservas[current.id];} tx.update(ref,{cajas:rest,estado:rest<=0?'agotado':'disponible',reservasCajas:reservas,lastPickingAt:firebase.firestore.FieldValue.serverTimestamp()});}
+      for(const {x,n} of pickingValid){const ref=colPalets.doc(x.id),cajasAntes=parseInt(x.cajas)||0,rest=cajasAntes-n,udsAntes=parseInt(x.unidades)||0,udsPorCaja=cajasAntes>0?udsAntes/cajasAntes:0,udsRestantes=Math.max(0,Math.round(udsAntes-(n*udsPorCaja))); const reservas={...(x.reservasCajas||{})}; const rPrev=parseInt(reservas[current.id])||0; if(rPrev>0){reservas[current.id]=Math.max(rPrev-n,0);if(!reservas[current.id])delete reservas[current.id];} tx.update(ref,{cajas:rest,unidades:udsRestantes,estado:rest<=0?'agotado':'disponible',reservasCajas:reservas,lastPickingAt:firebase.firestore.FieldValue.serverTimestamp()});}
       pickNew.forEach((m,i)=>{const src=pickingValid[i].x;tx.set(colMovLogistica.doc(),{paletId:m.paletId,accion:'picking',estado:src.estado, pedidoId:current.id,pedidoNum:current.num||'',salidaId:sid,cajas:m.cajas,producto:m.producto,formato:m.formato,lote:m.lote,caducidad:m.caducidad,ts,fecha:now});});
       tx.set(colSalidasPalets.doc(sid),salida);
       tx.set(orderRef,{...current,udsCargados:mainU,cajasCargadas:mainC,productosExtra:ex,pickingCajasPreparadas:pickCajasDespues,pickingMovimientos:[...prevPick,...pickNew],status:done?'cargado':current.status,cargadoAt:done?now.slice(0,10):current.cargadoAt||'',hora:current.hora||'',muelle:muelle||current.muelle||'',transportista:transportista||current.transportista||'',mat1:tractora||current.mat1||'',mat2:remolque||current.mat2||'',cargasHistorial:[...(current.cargasHistorial||[]),{fecha:now.slice(0,10),detalle:(ids.length?ids.length+' palets':'')+(pickNew.length?' + '+pickCajasNuevas+' cajas picking':''),palets:ids.length,pickingCajas:pickCajasNuevas,hora:current.hora||'',muelle,transportista,mat1:tractora,mat2:remolque}]});
-    }); if(!window._cpCargaMulti){ cpCerrarSalida(); } toast('🟢 Pedido '+(p.num||p.id)+' añadido a la carga '+(parseInt($('cps-carga-num')?.value)||1)+' · '+(ids.length?ids.length+' palets':'')+(pickingLocal.length?' + '+pickingLocal.reduce((a,r)=>a+r.cajas,0)+' cajas picking':''));
+    });
+      // El palet de origen queda disponible con su cantidad real restante.
+      // Actualizamos la caché local y abrimos su etiqueta con el nuevo número
+      // de cajas; el listener de Firestore confirmará después el mismo estado.
+      const restos=[];
+      pickingLocal.forEach(r=>{
+        const local=palets.find(x=>String(x.id)===String(r.paletId));
+        const antes=parseInt(local?.cajas)||0, extraidas=parseInt(r.cajas)||0, rest=Math.max(antes-extraidas,0), udsAntes=parseInt(local?.unidades)||0, udsPorCaja=antes>0?udsAntes/antes:0;
+        if(local){ local.cajas=rest; local.unidades=Math.max(0,Math.round(udsAntes-(extraidas*udsPorCaja))); local.estado=rest?'disponible':'agotado'; }
+        if(rest>0) restos.push(String(r.paletId));
+      });
+      if(restos.length){
+        setTimeout(()=>restos.forEach((id,i)=>setTimeout(()=>cpImprimirEtiqueta(id),180*i)),220);
+        toast('🟢 Pedido '+(p.num||p.id)+' preparado · etiqueta actualizada del sobrante: '+restos.join(', '));
+      }else toast('🟢 Pedido '+(p.num||p.id)+' preparado · el palet de origen quedó agotado');
+      if(!window._cpCargaMulti){ cpCerrarSalida(); }
     }catch(e){console.error(e);throw e;}
   };
   window.cpConfirmarSalida=async function(){

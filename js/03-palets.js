@@ -15,6 +15,7 @@
   let salidaCargaId = '';
   let cpPaletsVista = 'palets';
   let cpEditPaletId = '';
+  let cpConfirmandoSalida = false;
   function cpGuardarPreparacionActiva(){ if(salidaPedidoActivo) salidaPorPedido.set(String(salidaPedidoActivo),{palets:[...salidaPalets],picking:JSON.parse(JSON.stringify(salidaPicking))}); }
   function cpCargarPreparacion(id){ const v=salidaPorPedido.get(String(id))||{palets:[],picking:[]}; salidaPalets=[...(v.palets||[])]; salidaPicking=JSON.parse(JSON.stringify(v.picking||[])); }
   let camStream = null, camTimer = null;
@@ -77,6 +78,7 @@
       if(actuales.some(x=>String(x.id)===id))return;
       actuales.push({id,legacy:true,cargaId:c.cargaId||('LEGACY-'+(c.fecha||'sin-fecha')+'-'+(c.cargaNumero||c.numero||i)),cargaNumero:c.cargaNumero||c.numero||'',pedidoId:p.id,pedidoNum:p.num||p.id,cliente:p.grupo||'',palets:[],picking:(parseInt(c.pickingCajas)||0)>0?[{id:id+'-PICK',paletId:'',pedidoId:p.id,pedidoNum:p.num||p.id,producto:p.producto||'',cajas:parseInt(c.pickingCajas)||0}]:[],estado:'cargado',muelle:c.muelle||p.muelle||'',transportista:c.transportista||p.transportista||'',tractora:c.mat1||p.mat1||'',remolque:c.mat2||p.mat2||'',createdAt:c.fecha||p.cargadoAt||p.fecha,confirmedAt:c.fecha||p.cargadoAt||p.fecha,legacyDetalle:c});
     }));
+    (pedidos||[]).forEach(p=>{if(!p.packingListId||actuales.some(x=>String(x.id)===String(p.packingListId)))return;actuales.push({id:p.packingListId,cargaId:p.packingListId,cargaNumero:p.cargaNumero||'',pedidoId:p.id,pedidoNum:p.num||p.id,cliente:p.grupo||'',palets:[],picking:[],estado:'cargado',muelle:p.muelle||'',transportista:p.transportista||'',tractora:p.mat1||'',remolque:p.mat2||'',createdAt:p.cargadoAt||p.fecha,confirmedAt:p.cargadoAt||p.fecha});});
     return actuales;
   }
   window.cpAbrirPackingLists=function(){cpPaletsVista='salidas';$('cpPaletsView').style.display='none';$('cpPackingView').style.display='';cpRenderPackingLists();};
@@ -405,6 +407,7 @@
   };
   async function cpConfirmarSalidaPedido(){
     const p=pedidoById($('cps-pedido').value); if(!p){toast('⚠️ Selecciona un pedido');return;}
+    if((p.cargasHistorial||[]).length || p.packingListId){throw new Error('El pedido '+(p.num||p.id)+' ya tiene una carga registrada');}
     if(!salidaPalets.length && !salidaPicking.length){toast('⚠️ Selecciona palets completos o añade picking');return;}
     const pickingLocal=salidaPicking.filter(r=>(parseInt(r.cajas)||0)>0); if(salidaPicking.length!==pickingLocal.length){toast('⚠️ Indica las cajas a extraer en todos los palets de picking o elimínalos');return;}
     const ts=Date.now(); const sid=salidaCargaId ? (salidaCargaId+'-'+String(p.id)) : ('S'+ts.toString(36).toUpperCase()); const ids=[...new Set(salidaPalets)];
@@ -439,7 +442,7 @@
       for(const {x,n} of pickingValid){const ref=colPalets.doc(x.id),cajasAntes=parseInt(x.cajas)||0,rest=cajasAntes-n,udsAntes=parseInt(x.unidades)||0,udsPorCaja=cajasAntes>0?udsAntes/cajasAntes:0,udsRestantes=Math.max(0,Math.round(udsAntes-(n*udsPorCaja))); const reservas={...(x.reservasCajas||{})}; const rPrev=parseInt(reservas[current.id])||0; if(rPrev>0){reservas[current.id]=Math.max(rPrev-n,0);if(!reservas[current.id])delete reservas[current.id];} tx.update(ref,{cajas:rest,unidades:udsRestantes,estado:rest<=0?'agotado':'disponible',reservasCajas:reservas,lastPickingAt:firebase.firestore.FieldValue.serverTimestamp()});}
       pickNew.forEach((m,i)=>{const src=pickingValid[i].x;tx.set(colMovLogistica.doc(),{paletId:m.paletId,accion:'picking',estado:src.estado, pedidoId:current.id,pedidoNum:current.num||'',salidaId:sid,cajas:m.cajas,producto:m.producto,formato:m.formato,lote:m.lote,caducidad:m.caducidad,ts,fecha:now});});
       tx.set(colSalidasPalets.doc(sid),salida);
-      tx.set(orderRef,{...current,udsCargados:mainU,cajasCargadas:mainC,productosExtra:ex,pickingCajasPreparadas:pickCajasDespues,pickingMovimientos:[...prevPick,...pickNew],status:done?'cargado':current.status,cargadoAt:done?now.slice(0,10):current.cargadoAt||'',hora:current.hora||'',muelle:muelle||current.muelle||'',transportista:transportista||current.transportista||'',mat1:tractora||current.mat1||'',mat2:remolque||current.mat2||'',cargasHistorial:[...(current.cargasHistorial||[]),{fecha:now.slice(0,10),detalle:(ids.length?ids.length+' palets':'')+(pickNew.length?' + '+pickCajasNuevas+' cajas picking':''),palets:ids.length,pickingCajas:pickCajasNuevas,hora:current.hora||'',muelle,transportista,mat1:tractora,mat2:remolque}]});
+      tx.set(orderRef,{...current,packingListId:sid,udsCargados:mainU,cajasCargadas:mainC,productosExtra:ex,pickingCajasPreparadas:pickCajasDespues,pickingMovimientos:[...prevPick,...pickNew],status:'cargado',cargadoAt:now.slice(0,10),hora:current.hora||'',muelle:muelle||current.muelle||'',transportista:transportista||current.transportista||'',mat1:tractora||current.mat1||'',mat2:remolque||current.mat2||'',cargasHistorial:[...(current.cargasHistorial||[]),{fecha:now.slice(0,10),packingListId:sid,detalle:(ids.length?ids.length+' palets':'')+(pickNew.length?' + '+pickCajasNuevas+' cajas picking':''),palets:ids.length,pickingCajas:pickCajasNuevas,hora:current.hora||'',muelle,transportista,mat1:tractora,mat2:remolque}]});
     });
       // El palet de origen queda disponible con su cantidad real restante.
       // Actualizamos la caché local y abrimos su etiqueta con el nuevo número
@@ -459,8 +462,10 @@
     }catch(e){console.error(e);throw e;}
   };
   window.cpConfirmarSalida=async function(){
+    if(cpConfirmandoSalida){toast('⏳ Ya se está confirmando esta carga');return;}
+    cpConfirmandoSalida=true;
     cpGuardarPreparacionActiva();
-    if(!salidaPedidos.length){toast('⚠️ Añade al menos un pedido a la carga');return;}
+    if(!salidaPedidos.length){cpConfirmandoSalida=false;toast('⚠️ Añade al menos un pedido a la carga');return;}
     const numero=Math.max(1,parseInt($('cps-carga-num')?.value)||1); const cargaId=salidaCargaId||('C'+Date.now().toString(36).toUpperCase());
     const total=salidaPedidos.length; let ok=0;
     window._cpCargaMulti=true;
@@ -468,7 +473,7 @@
       for(const id of salidaPedidos){ $('cps-pedido').value=id; salidaPedidoActivo=String(id); cpCargarPreparacion(id); await cpConfirmarSalidaPedido(); ok++; }
       localStorage.setItem('cargasProUltimaCarga',String(numero)); cpCerrarSalida(); toast('🚚 Carga '+numero+' confirmada · '+ok+'/'+total+' pedidos');
     }catch(e){ toast('❌ La carga se detuvo tras '+ok+'/'+total+' pedidos: '+(e.message||e)); }
-    finally{ window._cpCargaMulti=false; }
+    finally{ window._cpCargaMulti=false; cpConfirmandoSalida=false; }
   };
 
   window.cpReabrirPedidoPalets=async function(pedidoId,{eliminar=false}={}){

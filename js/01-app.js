@@ -3132,12 +3132,15 @@ window.addEventListener('appinstalled',()=>{document.getElementById('pwa-banner'
 
 // ══ SERVICE WORKER ══
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').then(reg => {
+  navigator.serviceWorker.register('./sw.js?v=20261003-15', {updateViaCache:'none'}).then(reg => {
+    reg.update().catch(()=>{});
+    if(reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       nw.addEventListener('statechange', () => {
         if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-          toast('🔄 Actualización disponible — recarga la app');
+          nw.postMessage('SKIP_WAITING');
+          setTimeout(()=>location.reload(),150);
         }
       });
     });

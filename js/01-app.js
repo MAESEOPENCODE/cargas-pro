@@ -104,38 +104,40 @@ function _dedupeProducciones(rows){
   });
   return [...m.values()];
 }
+const CP_HISTORY_LIMIT=500, CP_STOCK_LIMIT=1000, CP_MOV_DAYS=90;
+function cpMovimientosDesde(){ return Date.now()-CP_MOV_DAYS*86400000; }
 function startReferenceListeners(){ if (!db) return;
-colProd.onSnapshot((snap) => {
+colProd.limit(CP_STOCK_LIMIT).onSnapshot((snap) => {
   producciones = _dedupeProducciones(snap.docs.map(d => ({ ...d.data(), id: d.id })));
   producciones.sort((a,b) => (a.caducidad||'9999-99-99').localeCompare(b.caducidad||'9999-99-99'));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
   render(); // por si hay avisos de stock visibles en el formulario abierto
 }, (err) => { console.error('Firestore producción:', err); });
-colMat.onSnapshot((snap) => {
+colMat.limit(CP_STOCK_LIMIT).onSnapshot((snap) => {
   materiales = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   materiales.sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore materiales:', err); });
-colRecetas.onSnapshot((snap) => {
+colRecetas.limit(CP_STOCK_LIMIT).onSnapshot((snap) => {
   recetas = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore recetas:', err); });
-colMovMat.onSnapshot((snap) => {
+colMovMat.where('ts','>=',cpMovimientosDesde()).orderBy('ts','desc').limit(CP_HISTORY_LIMIT).onSnapshot((snap) => {
   movimientosMat = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   movimientosMat.sort((a,b) => (b.ts||0)-(a.ts||0));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore movimientos materiales:', err); });
-colMovProd.onSnapshot((snap) => {
+colMovProd.where('ts','>=',cpMovimientosDesde()).orderBy('ts','desc').limit(CP_HISTORY_LIMIT).onSnapshot((snap) => {
   movimientosProd = snap.docs.map(d => ({ ...d.data(), id: d.id }));
   movimientosProd.sort((a,b) => (b.ts||0)-(a.ts||0));
   if (document.getElementById('mProduccion')?.classList.contains('open')) renderProduccionList();
 }, (err) => { console.error('Firestore movimientos producción:', err); });
-colPalets.onSnapshot((snap)=>{
+colPalets.limit(CP_STOCK_LIMIT).onSnapshot((snap)=>{
   palets = snap.docs.map(d=>({...d.data(),id:d.id}));
   palets.sort((a,b)=>(b.createdAt?.seconds||b.createdAt||0)-(a.createdAt?.seconds||a.createdAt||0));
   if(document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPalets();
 },(err)=>console.error('Firestore palets:',err));
-colSalidasPalets.onSnapshot((snap)=>{
+colSalidasPalets.limit(CP_HISTORY_LIMIT).onSnapshot((snap)=>{
   salidasPalets = snap.docs.map(d=>({...d.data(),id:d.id}));
 },(err)=>console.error('Firestore salidas palets:',err));
 }
@@ -337,10 +339,12 @@ async function consumirStock(articulo, palets, cajas, formato, pedidoId, prodRef
   if(!reqPal && !reqCaj) return [];
   const usados=[];
   await db.runTransaction(async tx=>{
-    // Leemos los lotes dentro de la transacción para que dos cargas simultáneas
-    // no puedan consumir la misma existencia basándose en una copia antigua.
-    const snap=await tx.get(colProd);
-    const fresh=snap.docs.map(d=>({...d.data(),id:d.id}));
+    // Firestore Web no admite tx.get() sobre colecciones o consultas. Primero
+    // calculamos los candidatos y dentro de la transacción leemos solo documentos.
+    const candidatos=planConsumo(articulo,reqPal,reqCaj,formato,pedidoId,prodRef,false).plan;
+    const refs=[...new Set(candidatos.map(({l})=>String(l.id)))].map(id=>colProd.doc(id));
+    const docs=[]; for(const ref of refs) docs.push(await tx.get(ref));
+    const fresh=docs.filter(d=>d.exists).map(d=>({...d.data(),id:d.id}));
     const prev=producciones;
     producciones=fresh;
     try {
@@ -348,7 +352,7 @@ async function consumirStock(articulo, palets, cajas, formato, pedidoId, prodRef
       if(faltaPal>0 || faltaCaj>0) throw new Error(`Stock insuficiente: faltan ${faltaPal} palets y ${faltaCaj} cajas`);
       for(const {l,up,uc} of plan){
         const ref=colProd.doc(String(l.id));
-        const current=snap.docs.find(d=>d.id===String(l.id))?.data();
+        const current=docs.find(d=>d.id===String(l.id))?.data();
         if(!current) throw new Error('El lote '+l.id+' ya no existe');
         const np=(parseFloat(current.paletsConsumidos)||0)+up;
         const nc=(parseFloat(current.cajasConsumidos)||0)+uc;
@@ -437,7 +441,7 @@ const _loadTimeout = setTimeout(() => {
   toast('⚠️ No se pudo conectar. Comprueba la conexión.');
 }, 8000);
 
-function startPedidoListener(){ if (!db) return; col.onSnapshot((snapshot) => {
+function startPedidoListener(){ if (!db) return; col.limit(CP_HISTORY_LIMIT).onSnapshot((snapshot) => {
   clearTimeout(_loadTimeout);
   pedidos = snapshot.docs.map(d => cpNormalizePedido({ ...d.data(), id: d.id }));
   // Ordenación: con número → por nº asc; sin número → al final por creación asc (último creado abajo)
@@ -499,8 +503,10 @@ if (auth) auth.onAuthStateChanged(async user=>{
   const label=document.getElementById('authUser');
   if(user){
     currentRole='operario';
-    try { const prof=await db.collection('usuarios').doc(user.uid).get(); currentRole=prof.exists ? (prof.data().rol||'operario') : 'operario'; } catch(_) {}
-    if(label)label.textContent=user.email||'';
+    try { const prof=await db.collection('usuarios').doc(user.uid).get(); currentRole=prof.exists ? (prof.data().rol||'operario') : 'operario'; } catch(err) { console.warn('No se pudo leer el rol; se usará operario:',err); toast('⚠️ No se pudo comprobar tu rol. Se aplican permisos de operario.',5000); }
+    if(label)label.textContent=(user.email||'')+' · '+(currentRole==='admin'?'Administrador':'Operario');
+    document.body.classList.toggle('operator-mode',currentRole!=='admin' && window.innerWidth<900);
+    document.querySelectorAll('[data-admin-action]').forEach(el=>{el.hidden=currentRole!=='admin';});
     window._cpHideLogin?.();
     offlineReady.then(()=>{if(!window._cpListenersStarted){window._cpListenersStarted=true;startReferenceListeners();startPedidoListener();}});
   } else {if(label)label.textContent='';hideLoadingScreen();window._cpShowLogin?.();}
@@ -3120,6 +3126,7 @@ function repararApp() {
 }
 // ══ VACIAR DATOS — inicio limpio de la aplicación ══
 async function vaciarDatosApp() {
+  if(!_cpEsAdmin()){ toast('⛔ Solo un administrador puede vaciar los datos'); return; }
   const total = pedidos.length + producciones.length + materiales.length + recetas.length + movimientosMat.length + movimientosProd.length + palets.length + salidasPalets.length;
   confirm2('⚠️','Vaciar datos de Cargas Pro',
     `Esta operación eliminará TODOS los datos de trabajo de la aplicación (${total} registros aprox.).\n\nSe borrarán pedidos, producción/lotes, materiales, recetas, palets, salidas y movimientos. El programa y su configuración técnica permanecerán intactos.\n\nAntes de continuar puedes usar «Guardar copia».`,
@@ -3137,6 +3144,7 @@ async function vaciarDatosApp() {
 }
 
 async function ejecutarVaciadoDatosApp() {
+  if(!_cpEsAdmin()){ toast('⛔ Solo un administrador puede vaciar los datos'); return; }
   const colecciones = [
     ['pedidos', col],
     ['movimientos_palets', colMov],

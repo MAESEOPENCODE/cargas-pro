@@ -1,5 +1,5 @@
 // Cargas Pro · Service Worker — SIEMPRE intenta la red primero (última versión); la caché es solo para trabajar sin conexión.
-const CACHE = 'cargaspro-v10-20261003';
+const CACHE = 'cargaspro-v11-20261003';
 const CORE = ['./', './index.html', './manifest.json', './css/app.css', './js/00-watchdog.js', './js/01-app.js', './js/02-navigation.js', './js/03-palets.js'];
 const CDN = ['www.gstatic.com', 'cdn.jsdelivr.net', 'unpkg.com'];
 

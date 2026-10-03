@@ -118,7 +118,8 @@
   <div class="operator-secondary">
     <button onclick="openProduccionModal()">Producción / stock</button>
     <button onclick="abrirMaterialesDirecto()">Materiales</button>
-    <button onclick="abrirPalets()">Ver palets</button>
+    <button onclick="abrirPalets({estado:'disponible'})">Palets creados</button>
+    <button onclick="abrirPalets({vista:'salida'})">Packing Lists</button>
   </div>
 </section>
 <!-- FILTER PANEL -->
@@ -219,8 +220,11 @@
       <div class="cp-p-stat"><b id="cpStatLoad">0</b><span>Cargados</span></div>
     </div>
     <div class="cp-p-toolbar">
+      <button class="cp-p-btn" onclick="cpPalQuickFilter('')">Todos</button>
+      <button class="cp-p-btn" onclick="cpPalQuickFilter('disponible')">Palets creados / disponibles</button>
+      <button class="cp-p-btn" onclick="cpPalQuickFilter('__sin_ubicacion__')">Sin ubicación</button>
       <input id="cpPalBusca" placeholder="🔎 Buscar palet, pedido, cliente, producto, lote..." oninput="cpRenderPalets()">
-      <select id="cpPalEstado" onchange="cpRenderPalets()"><option value="">Todos los estados</option><option value="disponible">Disponible</option><option value="reservado">Reservado</option><option value="preparando">Preparando</option><option value="cargado">Cargado</option><option value="bloqueado">Bloqueado</option></select>
+      <select id="cpPalEstado" onchange="cpRenderPalets()"><option value="">Todos los estados</option><option value="disponible">Disponible</option><option value="reservado">Reservado</option><option value="preparando">Preparando</option><option value="cargado">Cargado</option><option value="bloqueado">Bloqueado</option><option value="__sin_ubicacion__">Sin ubicación</option></select>
       <select id="cpPalPedido" onchange="cpRenderPalets()"><option value="">Todos los pedidos</option></select>
       <button class="cp-p-btn" onclick="cpRenderPalets()">↻ Actualizar</button>
     </div>

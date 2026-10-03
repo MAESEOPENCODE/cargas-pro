@@ -210,9 +210,20 @@
     <div class="cp-p-spacer"></div>
     <button class="cp-p-btn yellow" onclick="cpNuevoPalet()">＋ Nuevo palet</button>
     <button class="cp-p-btn primary" onclick="cpNuevaSalida()">🚚 Nuevo Packing List</button>
+    <button class="cp-p-btn" onclick="cpAbrirPackingLists()">📋 Packing Lists creados</button>
     <button class="cp-p-btn" onclick="cerrarPalets()">✕</button>
   </div>
   <div class="cp-p-body">
+    <div id="cpPackingView" style="display:none">
+      <div class="cp-p-toolbar">
+        <button class="cp-p-btn" onclick="cpVolverPalets()">← Palets</button>
+        <input id="cpPackingBusca" placeholder="🔎 Buscar carga, pedido, cliente, matrícula o muelle..." oninput="cpRenderPackingLists()">
+        <select id="cpPackingEstado" onchange="cpRenderPackingLists()"><option value="">Todos los estados</option><option value="cargado">Cargado</option></select>
+        <button class="cp-p-btn" onclick="cpRenderPackingLists()">↻ Actualizar</button>
+      </div>
+      <div id="cpPackingLista" class="cp-p-table"></div>
+    </div>
+    <div id="cpPaletsView">
     <div class="cp-p-stats">
       <div class="cp-p-stat"><b id="cpStatDisp">0</b><span>Disponibles</span></div>
       <div class="cp-p-stat"><b id="cpStatRes">0</b><span>Reservados</span></div>
@@ -229,6 +240,14 @@
       <button class="cp-p-btn" onclick="cpRenderPalets()">↻ Actualizar</button>
     </div>
     <div id="cpPalLista" class="cp-p-table"></div>
+    </div>
+  </div>
+</div>
+
+<div class="cp-p-modal" id="cpPackingDetailModal" onclick="if(event.target===this)cpCerrarPackingDetalle()">
+  <div class="cp-p-box wide">
+    <div class="cp-p-mhead"><strong>📋 Detalle del Packing List</strong><div class="cp-p-spacer"></div><button class="cp-p-btn" onclick="cpCerrarPackingDetalle()">✕</button></div>
+    <div class="cp-p-mscroll" id="cpPackingDetalle"></div>
   </div>
 </div>
 
@@ -678,6 +697,6 @@
 
 <script src="js/02-navigation.js?v=20261003-7"></script>
 
-<script src="js/03-palets.js?v=20261003-7"></script>
+<script src="js/03-palets.js?v=20261003-10"></script>
 </body>
 </html>

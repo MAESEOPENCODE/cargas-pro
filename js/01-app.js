@@ -140,7 +140,7 @@ colPalets.limit(CP_STOCK_LIMIT).onSnapshot((snap)=>{
 colSalidasPalets.onSnapshot((snap)=>{
   salidasPalets = snap.docs.map(d=>({...d.data(),id:d.id}));
   if(document.getElementById('cpPackingView')?.style.display!=='none' && document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPackingLists();
-},(err)=>console.error('Firestore salidas palets:',err));
+},(err)=>{ console.error('Firestore salidas palets:',err); toast('⚠️ No se pudo leer el histórico de Packing Lists: '+(err.code||'permiso o conexión'),6000); });
 }
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
@@ -473,7 +473,7 @@ const _loadTimeout = setTimeout(() => {
   toast('⚠️ No se pudo conectar. Comprueba la conexión.');
 }, 8000);
 
-function startPedidoListener(){ if (!db) return; col.limit(CP_HISTORY_LIMIT).onSnapshot((snapshot) => {
+function startPedidoListener(){ if (!db) return; col.onSnapshot((snapshot) => {
   clearTimeout(_loadTimeout);
   pedidos = snapshot.docs.map(d => cpNormalizePedido({ ...d.data(), id: d.id }));
   // Ordenación: con número → por nº asc; sin número → al final por creación asc (último creado abajo)

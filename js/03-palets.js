@@ -68,11 +68,22 @@
   };
 
   function cpSalidaFecha(x){const v=x?.confirmedAt||x?.createdAt;return v?.seconds?new Date(v.seconds*1000).toLocaleString('es-ES'):(v?new Date(v).toLocaleString('es-ES'):'—');}
+  function cpPackingRecords(){
+    const actuales=[...(salidasPalets||[])];
+    // Compatibilidad: el flujo antiguo guardaba la carga en pedidos.cargasHistorial
+    // pero no creaba un documento en salidas_palets.
+    (pedidos||[]).forEach(p=>(p.cargasHistorial||[]).forEach((c,i)=>{
+      const id='LEGACY-'+String(p.id)+'-'+i;
+      if(actuales.some(x=>String(x.id)===id))return;
+      actuales.push({id,legacy:true,cargaId:c.cargaId||('LEGACY-'+(c.fecha||'sin-fecha')+'-'+(c.cargaNumero||c.numero||i)),cargaNumero:c.cargaNumero||c.numero||'',pedidoId:p.id,pedidoNum:p.num||p.id,cliente:p.grupo||'',palets:[],picking:(parseInt(c.pickingCajas)||0)>0?[{id:id+'-PICK',paletId:'',pedidoId:p.id,pedidoNum:p.num||p.id,producto:p.producto||'',cajas:parseInt(c.pickingCajas)||0}]:[],estado:'cargado',muelle:c.muelle||p.muelle||'',transportista:c.transportista||p.transportista||'',tractora:c.mat1||p.mat1||'',remolque:c.mat2||p.mat2||'',createdAt:c.fecha||p.cargadoAt||p.fecha,confirmedAt:c.fecha||p.cargadoAt||p.fecha,legacyDetalle:c});
+    }));
+    return actuales;
+  }
   window.cpAbrirPackingLists=function(){cpPaletsVista='salidas';$('cpPaletsView').style.display='none';$('cpPackingView').style.display='';cpRenderPackingLists();};
   window.cpVolverPalets=function(){cpPaletsVista='palets';$('cpPackingView').style.display='none';$('cpPaletsView').style.display='';cpRenderPalets();};
   function cpPackingGroups(){
     const groups=new Map();
-    (salidasPalets||[]).forEach(x=>{const key=String(x.cargaId||x.id);if(!groups.has(key))groups.set(key,{key,items:[],palets:[],picking:[]});const g=groups.get(key);g.items.push(x);(x.palets||[]).forEach(id=>{if(!g.palets.includes(id))g.palets.push(id);});g.picking.push(...(x.picking||[]));});
+    cpPackingRecords().forEach(x=>{const key=String(x.cargaId||x.id);if(!groups.has(key))groups.set(key,{key,items:[],palets:[],picking:[]});const g=groups.get(key);g.items.push(x);(x.palets||[]).forEach(id=>{if(!g.palets.includes(id))g.palets.push(id);});g.picking.push(...(x.picking||[]));});
     return [...groups.values()].map(g=>{const first=g.items[0]||{},ordenados=g.items.slice().sort((a,b)=>(a.ordenPedido||999)-(b.ordenPedido||999));const secuencia=ordenados.flatMap(x=>(x.secuenciaCarga||[...(x.palets||[]).map((id,i)=>({orden:i+1,tipo:'palet',paletId:id})),...(x.picking||[]).map((p,i)=>({orden:(x.palets||[]).length+i+1,tipo:'picking',paletId:p.paletId,cajas:p.cajas}))]).map(s=>({...s,pedidoNum:x.pedidoNum||x.pedidoId||'',cliente:x.cliente||'',ordenPedido:x.ordenPedido||999}))).sort((a,b)=>a.ordenPedido-b.ordenPedido||a.orden-b.orden);return {...g,first,clientes:[...new Set(g.items.map(x=>x.cliente).filter(Boolean))],pedidos:ordenados.map(x=>x.pedidoNum||x.pedidoId).filter(Boolean),estado:[...new Set(g.items.map(x=>x.estado).filter(Boolean))].join(' / ')||'—',secuencia,fecha:g.items.slice().sort((a,b)=>createdValue(b.confirmedAt||b.createdAt)-createdValue(a.confirmedAt||a.createdAt))[0]};});
   }
   window.cpRenderPackingLists=function(){

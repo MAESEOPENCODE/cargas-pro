@@ -137,7 +137,7 @@ colPalets.limit(CP_STOCK_LIMIT).onSnapshot((snap)=>{
   palets.sort((a,b)=>(b.createdAt?.seconds||b.createdAt||0)-(a.createdAt?.seconds||a.createdAt||0));
   if(document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPalets();
 },(err)=>console.error('Firestore palets:',err));
-colSalidasPalets.limit(CP_HISTORY_LIMIT).onSnapshot((snap)=>{
+colSalidasPalets.onSnapshot((snap)=>{
   salidasPalets = snap.docs.map(d=>({...d.data(),id:d.id}));
   if(document.getElementById('cpPackingView')?.style.display!=='none' && document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPackingLists();
 },(err)=>console.error('Firestore salidas palets:',err));
@@ -515,6 +515,7 @@ function startPedidoListener(){ if (!db) return; col.limit(CP_HISTORY_LIMIT).onS
   // Sincronizar navegación y breadcrumb sin sobrescribir la pestaña activa.
   if (typeof setTab === 'function') setTab(activeTab);
   else render();
+  if(document.getElementById('cpPackingView')?.style.display!=='none' && document.getElementById('cpPaletsScreen')?.classList.contains('open')) cpRenderPackingLists();
 }, (err) => {
   clearTimeout(_loadTimeout);
   console.error('Firestore:', err);

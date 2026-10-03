@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f5c3a">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cargas Pro">
+<title>Cargas Pro</title>
+<style>
+:root{--bg:#eef2ef;--c:#fff;--t:#17231c;--m:#66756c;--b:#d5ddd8;--p:#1f5c3a;--r:#c8321f;--a:#d99a1d}
+@media(prefers-color-scheme:dark){:root{--bg:#111815;--c:#1a2420;--t:#e6eee9;--m:#8fa196;--b:#2a3830;--p:#4fae7b}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--t)}
+button,input,select{font:inherit;color:inherit}
+button{background:var(--c);border:1px solid var(--b);border-radius:6px;padding:7px 12px;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--p);outline-offset:1px}
+.pri{background:var(--p);border-color:var(--p);color:#fff}
+input,select{width:100%;padding:8px;border:1px solid var(--b);border-radius:6px;background:var(--c)}
+label{display:block;margin:8px 0;font-size:13px;color:var(--m)}label input,label select{margin-top:3px;color:var(--t)}
+#login{min-height:100vh;display:grid;place-items:center;padding:16px}
+#lf{background:var(--c);padding:28px;border-radius:10px;width:min(340px,100%);display:grid;gap:10px;border:1px solid var(--b)}
+#lf h1{margin:0 0 6px;color:var(--p)}#er{color:var(--r);margin:0;min-height:1em}
+header{position:sticky;top:0;z-index:5;background:var(--p);color:#fff;display:flex;gap:10px;align-items:center;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;overflow-x:auto}
+header b{font-size:17px}header button{background:transparent;border:0;color:#fff;opacity:.75;white-space:nowrap}
+header nav{display:flex;gap:2px;flex:1}header nav .on{opacity:1;border-bottom:3px solid var(--a);border-radius:0;font-weight:600}
+main{padding:12px;max-width:1100px;margin:auto;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+.bar{display:flex;gap:8px;margin-bottom:10px}.bar #q{flex:1}.bar #act{display:flex;gap:6px}
+.sc{overflow-x:auto;background:var(--c);border:1px solid var(--b);border-radius:8px}
+table{border-collapse:collapse;width:100%}th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--b);vertical-align:top;white-space:nowrap}
+td:nth-child(4){white-space:normal}th{font-size:13px;color:var(--m);font-weight:600}
+.tag{padding:2px 8px;border-radius:99px;font-size:12px;background:var(--b)}
+.Cargado,.Disponible{background:#d5eadd;color:#14482b}.Parcial{background:#f6e3b6;color:#6b4a00}.Pendiente{background:#f3d3cd;color:#8a2314}
+.chip{display:inline-block;background:var(--c);border:1px solid var(--b);border-radius:6px;padding:4px 10px;margin:0 6px 8px 0}
+.m{color:var(--m)}.warn{color:var(--r);font-weight:600}
+dialog{border:0;border-radius:10px;width:min(520px,94vw);background:var(--c);color:var(--t);padding:18px;max-height:90vh}
+dialog::backdrop{background:#0008}.row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.ln{display:grid;grid-template-columns:2fr 1.4fr .8fr auto;gap:6px;align-items:end}
+.ck{display:flex;gap:8px;align-items:center;color:var(--t);font-size:14px}.ck input{width:auto}
+h4{margin:12px 0 4px}
+</style></head><body>
+
+<div id="login"><form id="lf"><h1>Cargas Pro</h1>
+<input id="em" type="email" placeholder="Correo electrónico" autocomplete="username" required>
+<input id="pw" type="password" placeholder="Contraseña" autocomplete="current-password" required>
+<button class="pri">Entrar</button><p id="er"></p></form></div>
+
+<div id="app" hidden>
+<header><b>Cargas Pro</b><nav id="nav"></nav><button id="out">Salir</button></header>
+<main><div class="bar"><input id="q" placeholder="Buscar…"><span id="act"></span></div><div id="v"></div></main>
+</div>
+
+<dialog id="md"><h3 id="mt" style="margin-top:0"></h3><div id="mb"></div>
+<div class="row"><button onclick="md.close()">Cancelar</button><button class="pri" id="ok">Guardar</button></div></dialog>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+<script>
+/* ===== CONFIGURACIÓN: pega aquí los datos del proyecto Firebase actual ===== */
+const CFG={
+  firebase:{
+    apiKey:"AIzaSyBog0Y7wgH5DuV9nuQhqxJB4y-HFRaljYQ",
+    authDomain:"cargas-pro.firebaseapp.com",
+    projectId:"cargas-pro",
+    storageBucket:"cargas-pro.firebasestorage.app",
+    messagingSenderId:"449154412431",
+    appId:"1:449154412431:web:cfd5619d5816c649e965fa"
+  }, // con null la app funciona en modo demo local, sin login
+  empresa:'Nombre de la empresa',
+  prefijo:'8400000' // prefijo de empresa GS1 (7 dígitos) para generar el SSCC
+};
+const PRODUCTOS=['Gazpacho tradicional','Salmorejo','Salsa de tomate','Salsa barbacoa'];
+const FORMATOS=['Brik 1 L','Brik 330 ml','Botella 750 ml','Tarro 370 g'];
+/* ========================================================================== */
+
+const COLS=['orders','lots','pallets','loads'];
+const D={orders:[],lots:[],pallets:[],loads:[]};
+let fs=null,tab='ped',fest='',LN=[];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const uid=()=>Math.random().toString(36).slice(2,10);
+const today=()=>new Date().toISOString().slice(0,10);
+const fecha=d=>d?d.split('-').reverse().join('/'):'';
+const inp=(i,l,v='',t='text')=>`<label>${l}<input id="${i}" type="${t}" value="${esc(v)}"></label>`;
+const sel=(i,l,o,v)=>`<label>${l}<select id="${i}">${o.map(x=>{x=Array.isArray(x)?x:[x,x];return`<option value="${esc(x[0])}"${x[0]==v?' selected':''}>${esc(x[1])}</option>`}).join('')}</select></label>`;
+
+/* ---------- datos ---------- */
+function init(){
+  // la app antigua era una PWA: se elimina su service worker y su caché para que no sirva la versión vieja
+  if('serviceWorker' in navigator)navigator.serviceWorker.getRegistrations().then(r=>r.forEach(x=>x.unregister()));
+  if(window.caches)caches.keys().then(k=>k.forEach(x=>caches.delete(x)));
+  if(CFG.firebase&&typeof firebase!=='undefined'){
+    firebase.initializeApp(CFG.firebase);fs=firebase.firestore();
+    firebase.auth().onAuthStateChanged(u=>{$('#login').style.display=u?'none':'grid';$('#app').hidden=!u;if(u)suscribir()});
+    $('#lf').onsubmit=async e=>{e.preventDefault();$('#er').textContent='Entrando…';
+      try{await firebase.auth().signInWithEmailAndPassword($('#em').value.trim(),$('#pw').value);$('#er').textContent=''}
+      catch(x){$('#er').textContent=({'auth/invalid-credential':'Correo o contraseña incorrectos','auth/wrong-password':'Correo o contraseña incorrectos','auth/user-not-found':'Ese correo no existe en este proyecto'})[x.code]||('Error: '+x.code)}};
+    $('#out').onclick=()=>firebase.auth().signOut();
+  }else{
+    COLS.forEach(c=>D[c]=JSON.parse(localStorage.getItem('cp_'+c)||'[]'));
+    $('#login').hidden=true;$('#app').hidden=false;$('#out').hidden=true;render();
+  }
+  $('#q').oninput=render;
+}
+let subs=false;
+function suscribir(){if(subs)return;subs=true;
+  COLS.forEach(c=>fs.collection(c).onSnapshot(s=>{D[c]=s.docs.map(d=>({...d.data(),id:d.id}));render()},
+    e=>{$('#v').insertAdjacentHTML('beforebegin',`<p class="warn">No se puede leer «${c}»: ${esc(e.code)}. Revisa las reglas de Firestore.</p>`)}))}
+async function save(c,o){
+  o.id=o.id||uid();
+  if(fs){const{id,...r}=o;await fs.collection(c).doc(id).set(r)}
+  else{const i=D[c].findIndex(x=>x.id==o.id);i<0?D[c].push(o):D[c][i]=o;localStorage.setItem('cp_'+c,JSON.stringify(D[c]));render()}
+}
+async function del(c,id){
+  if(fs)await fs.collection(c).doc(id).delete();
+  else{D[c]=D[c].filter(x=>x.id!=id);localStorage.setItem('cp_'+c,JSON.stringify(D[c]));render()}
+}
+async function nextSerial(){
+  if(!fs){const n=+(localStorage.cp_ser||0)+1;localStorage.cp_ser=n;return n}
+  const r=fs.collection('meta').doc('sscc');
+  return fs.runTransaction(async t=>{const s=await t.get(r);const n=(s.exists?s.data().n:0)+1;t.set(r,{n});return n});
+}
+function sscc(n){ // 0 + prefijo(7) + serie(9) + dígito de control GS1
+  const b='0'+CFG.prefijo+String(n).padStart(9,'0');let s=0;
+  [...b].forEach((d,i)=>s+=d*(i%2?1:3));
+  return b+((10-s%10)%10);
+}
+
+/* ---------- reglas de negocio ---------- */
+const req=o=>(o.lineas||[]).reduce((a,l)=>a+ +l.palets,0);
+const cargados=o=>D.pallets.filter(p=>p.pedido==o.id&&p.estado=='Cargado').length;
+const estado=o=>{const c=cargados(o),r=req(o);return r&&c>=r?'Cargado':c?'Parcial':'Pendiente'};
+const dias=d=>d?Math.round((new Date(d)-new Date(today()))/864e5):999;
+
+/* ---------- interfaz ---------- */
+function modal(t,b,ok){$('#mt').textContent=t;$('#mb').innerHTML=b;$('#md').showModal();
+  $('#ok').onclick=async()=>{try{if(await ok()!==false)$('#md').close()}catch(e){alert('No se pudo guardar: '+(e.code||e.message))}}}
+function tbl(h,r){return`<div class="sc"><table><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr>${
+  r.map(x=>`<tr>${x.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')||`<tr><td colspan="9" class="m">Sin datos todavía</td></tr>`}</table></div>`}
+const tag=s=>`<span class="tag ${s}">${s}</span>`;
+const btn=(f,i,x)=>`<button onclick="${f}('${i}')" title="${x}">${x}</button>`;
+
+function render(){
+  const T={ped:'Pedidos',prod:'Producción',pal:'Palets',pack:'Packing List'};
+  $('#nav').innerHTML=Object.entries(T).map(([k,v])=>`<button class="${k==tab?'on':''}" onclick="tab='${k}';render()">${v}</button>`).join('');
+  const q=$('#q').value.toLowerCase(),f=r=>!q||r.join(' ').toLowerCase().includes(q);
+  let a='',pre='',h=[],rows=[];
+  if(tab=='ped'){
+    a='<button class="pri" onclick="pedForm()">+ Pedido</button>';
+    h=['Nº','Cliente','Fecha','Líneas','Palets','Estado',''];
+    rows=[...D.orders].sort((x,y)=>(y.fecha||'').localeCompare(x.fecha||'')).map(o=>[esc(o.num),esc(o.cliente),fecha(o.fecha),
+      (o.lineas||[]).map(l=>`${l.palets} × ${esc(l.producto)} ${esc(l.formato)}`).join('<br>'),`${cargados(o)}/${req(o)}`,tag(estado(o)),
+      btn('pedForm',o.id,'Editar')+btn('borrarPed',o.id,'Borrar')]);
+  }
+  if(tab=='prod'){
+    a='<button class="pri" onclick="loteForm()">+ Lote de producción</button>';
+    const st={};D.pallets.filter(p=>p.estado=='Disponible').forEach(p=>{const k=p.producto+' '+p.formato;st[k]=(st[k]||0)+1});
+    pre=Object.entries(st).map(([k,n])=>`<span class="chip">${esc(k)}: <b>${n}</b> palets</span>`).join('')||'<p class="m">Sin stock disponible</p>';
+    h=['Producto','Formato','Lote','Producción','Caducidad','Palets','Disponibles'];
+    rows=[...D.lots].sort((x,y)=>(y.fprod||'').localeCompare(x.fprod||'')).map(l=>[esc(l.producto),esc(l.formato),esc(l.lote),fecha(l.fprod),fecha(l.cad),
+      `${l.n} × ${l.cp} cajas`,D.pallets.filter(p=>p.lotId==l.id&&p.estado=='Disponible').length]);
+  }
+  if(tab=='pal'){
+    a=`<select id="fe" onchange="fest=this.value;render()">${['','Disponible','Cargado'].map(x=>`<option value="${x}"${x==fest?' selected':''}>${x||'Todos'}</option>`).join('')}</select>`;
+    h=['SSCC','Producto','Lote','Caducidad','Cajas','Estado','Pedido',''];
+    rows=D.pallets.filter(p=>!fest||p.estado==fest).sort((x,y)=>(x.cad||'').localeCompare(y.cad||'')).map(p=>{
+      const o=D.orders.find(x=>x.id==p.pedido),d=dias(p.cad);
+      return[p.sscc,esc(p.producto+' '+p.formato),esc(p.lote),`<span class="${d<=30&&p.estado=='Disponible'?'warn':''}">${fecha(p.cad)}</span>`,p.cajas,tag(p.estado),o?esc(o.num):'',
+        btn('etiqueta',p.id,'Etiqueta')+(p.estado=='Disponible'?btn('borrarPal',p.id,'Borrar'):'')]});
+  }
+  if(tab=='pack'){
+    a='<button class="pri" onclick="packForm()">+ Packing list</button>';
+    h=['Nº','Fecha','Pedido','Cliente','Transportista','Matrícula','Palets',''];
+    rows=[...D.loads].sort((x,y)=>y.num.localeCompare(x.num)).map(l=>[l.num,fecha(l.fecha),esc(l.pedidoNum),esc(l.cliente),esc(l.transportista),
+      esc(l.tractora+' '+l.remolque),l.palets.length,btn('pl',l.id,'Imprimir')+btn('borrarCarga',l.id,'Anular')]);
+  }
+  $('#act').innerHTML=a;
+  $('#v').innerHTML=pre+tbl(h,rows.filter(f));
+}
+
+/* ---------- pedidos ---------- */
+const grab=()=>{LN=LN.map((l,i)=>({producto:$('#p'+i).value,formato:$('#f'+i).value,palets:+$('#n'+i).value||0}))};
+const drawL=()=>{$('#ln').innerHTML=LN.map((l,i)=>`<div class="ln">${sel('p'+i,'Producto',PRODUCTOS,l.producto)}${sel('f'+i,'Formato',FORMATOS,l.formato)}${inp('n'+i,'Palets',l.palets||'','number')}<button onclick="grab();LN.splice(${i},1);drawL()" title="Quitar">✕</button></div>`).join('')};
+function pedForm(id){
+  const o=D.orders.find(x=>x.id==id)||{fecha:today()};
+  LN=(o.lineas||[{}]).map(l=>({...l}));
+  modal(id?'Editar pedido':'Nuevo pedido',
+    inp('nu','Nº pedido',o.num)+inp('cl','Cliente',o.cliente)+inp('fe','Fecha de carga',o.fecha,'date')+inp('rf','Referencia del cliente',o.ref)+
+    '<div id="ln"></div><button onclick="grab();LN.push({});drawL()">+ Línea</button>'+inp('no','Notas',o.notas),
+    async()=>{grab();const v=k=>$('#'+k).value;
+      if(!v('nu')||!v('cl')||!LN.length||LN.some(l=>!l.palets))return alert('Indica nº de pedido, cliente y los palets de cada línea'),false;
+      if(D.orders.some(x=>x.num==v('nu')&&x.id!=o.id))return alert('Ya existe un pedido con ese número'),false;
+      await save('orders',{...o,num:v('nu'),cliente:v('cl'),fecha:v('fe'),ref:v('rf'),notas:v('no'),lineas:LN})});
+  drawL();
+}
+async function borrarPed(id){const o=D.orders.find(x=>x.id==id);
+  if(cargados(o))return alert('Este pedido tiene palets cargados. Anula antes su packing list.');
+  if(confirm('¿Borrar el pedido '+o.num+'?'))del('orders',id)}
+
+/* ---------- producción y palets ---------- */
+function loteForm(){
+  modal('Nuevo lote de producción',
+    sel('pr','Producto',PRODUCTOS)+sel('fo','Formato',FORMATOS)+inp('lote','Lote')+inp('fp','Fecha de producción',today(),'date')+inp('cad','Caducidad','','date')+
+    inp('np','Nº de palets','','number')+inp('cp','Cajas por palet','','number'),
+    async()=>{const v=k=>$('#'+k).value,n=+v('np'),cp=+v('cp');
+      if(!v('lote')||!v('cad')||!(n>0)||!(cp>0))return alert('Completa lote, caducidad, nº de palets y cajas por palet'),false;
+      if(D.lots.some(l=>l.lote==v('lote')&&l.producto==v('pr')&&l.formato==v('fo')))return alert('Ese lote ya está registrado para este producto y formato'),false;
+      const lot={producto:v('pr'),formato:v('fo'),lote:v('lote'),fprod:v('fp'),cad:v('cad'),n,cp};
+      await save('lots',lot);
+      for(let i=0;i<n;i++)await save('pallets',{sscc:sscc(await nextSerial()),producto:lot.producto,formato:lot.formato,lote:lot.lote,cad:lot.cad,cajas:cp,estado:'Disponible',pedido:'',lotId:lot.id,creado:today()})});
+}
+function borrarPal(id){if(confirm('¿Borrar este palet?'))del('pallets',id)}
+
+/* ---------- packing list ---------- */
+function packForm(){
+  const pend=D.orders.filter(o=>estado(o)!='Cargado');
+  if(!pend.length)return alert('No hay pedidos pendientes de cargar');
+  modal('Nuevo packing list',
+    sel('po','Pedido',pend.map(o=>[o.id,o.num+' · '+o.cliente]))+'<div id="cand"></div>'+inp('mu','Muelle')+inp('tr','Transportista')+inp('tc','Tractora')+inp('rm','Remolque'),
+    async()=>{
+      const ids=[...document.querySelectorAll('#cand input:checked')].map(c=>c.value);
+      if(!ids.length)return alert('Selecciona al menos un palet'),false;
+      const o=D.orders.find(x=>x.id==$('#po').value),v=k=>$('#'+k).value,d=today(),n=D.loads.filter(l=>l.fecha==d).length+1;
+      const L={num:'PL-'+d.replace(/-/g,'')+'-'+n,fecha:d,pedido:o.id,pedidoNum:o.num,cliente:o.cliente,muelle:v('mu'),transportista:v('tr'),tractora:v('tc'),remolque:v('rm'),palets:ids};
+      await save('loads',L);
+      for(const id of ids){const p=D.pallets.find(x=>x.id==id);await save('pallets',{...p,estado:'Cargado',pedido:o.id,carga:L.num})}});
+  $('#po').onchange=cand;cand();
+}
+function cand(){ // propone palets disponibles por caducidad más próxima (FEFO)
+  const o=D.orders.find(x=>x.id==$('#po').value);let h='';
+  (o.lineas||[]).forEach(l=>{
+    const hecho=D.pallets.filter(p=>p.pedido==o.id&&p.estado=='Cargado'&&p.producto==l.producto&&p.formato==l.formato).length;
+    let falta=l.palets-hecho;
+    const c=D.pallets.filter(p=>p.estado=='Disponible'&&p.producto==l.producto&&p.formato==l.formato).sort((a,b)=>(a.cad||'').localeCompare(b.cad||''));
+    h+=`<h4>${esc(l.producto)} ${esc(l.formato)} · faltan ${Math.max(falta,0)}</h4>`+(c.length?
+      c.map(p=>`<label class="ck"><input type="checkbox" value="${p.id}"${falta-->0?' checked':''}>${p.sscc.slice(-6)} · lote ${esc(p.lote)} · cad. ${fecha(p.cad)} · ${p.cajas} cajas</label>`).join(''):'<p class="m">Sin stock disponible</p>');
+  });
+  $('#cand').innerHTML=h;
+}
+async function borrarCarga(id){const L=D.loads.find(x=>x.id==id);
+  if(!confirm('¿Anular '+L.num+'? Los palets volverán a estar disponibles.'))return;
+  for(const pid of L.palets){const p=D.pallets.find(x=>x.id==pid);if(p)await save('pallets',{...p,estado:'Disponible',pedido:'',carga:''})}
+  del('loads',id)}
+
+/* ---------- impresión ---------- */
+function imprimir(h){const w=open('','_blank');if(!w)return alert('Permite las ventanas emergentes para imprimir');
+  w.document.write(`<meta charset="utf-8"><style>body{font:13px sans-serif;margin:24px}table{border-collapse:collapse;width:100%;margin-top:12px}td,th{border:1px solid #888;padding:4px 6px;text-align:left}.e{page-break-after:always;text-align:center;padding-top:40px}.e svg{width:90%}.big{font:bold 26px monospace}</style>${h}`);
+  w.document.close();setTimeout(()=>w.print(),300)}
+function pl(id){
+  const L=D.loads.find(x=>x.id==id),P=L.palets.map(i=>D.pallets.find(p=>p.id==i)).filter(Boolean);
+  imprimir(`<h2>${esc(CFG.empresa)} · Packing List ${L.num}</h2><p>Fecha ${fecha(L.fecha)} · Pedido ${esc(L.pedidoNum)} · Cliente ${esc(L.cliente)}<br>Transportista ${esc(L.transportista)} · Tractora ${esc(L.tractora)} · Remolque ${esc(L.remolque)} · Muelle ${esc(L.muelle)}</p>
+  <table><tr><th>SSCC</th><th>Producto</th><th>Formato</th><th>Lote</th><th>Caducidad</th><th>Cajas</th></tr>${
+  P.map(p=>`<tr><td>${p.sscc}</td><td>${esc(p.producto)}</td><td>${esc(p.formato)}</td><td>${esc(p.lote)}</td><td>${fecha(p.cad)}</td><td>${p.cajas}</td></tr>`).join('')}
+  <tr><th colspan="5">Total: ${P.length} palets</th><th>${P.reduce((a,p)=>a+ +p.cajas,0)}</th></tr></table>`);
+}
+function etiqueta(id){
+  const p=D.pallets.find(x=>x.id==id),s=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  try{JsBarcode(s,p.sscc,{format:'CODE128',displayValue:false,height:90})}catch(e){}
+  imprimir(`<div class="e"><h2>${esc(p.producto)} ${esc(p.formato)}</h2><p>Lote ${esc(p.lote)} · Caducidad ${fecha(p.cad)} · ${p.cajas} cajas</p>${s.outerHTML}<div class="big">(00) ${p.sscc}</div></div>`);
+}
+init();
+</script></body></html>

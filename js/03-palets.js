@@ -436,13 +436,20 @@
     if(C>0){ cantidades.push(restantes); }
     const desired=cantidades.length;
     const loteRef=colProd.doc(String(lote.id));
+    // Compatibilidad con lotes antiguos sin paletIds. La transacción solo
+    // recibe DocumentReference; el documento de producción sigue siendo la
+    // fuente autoritativa en ejecuciones posteriores.
+    let legacyExistingIds=[];
+    try {
+      const legacySnap=await colPalets.where('produccionId','==',String(lote.id)).get();
+      legacyExistingIds=legacySnap.docs.map(d=>d.id);
+    } catch(e) { console.warn('No se pudo consultar palets existentes:',e); }
     try{
       const result=await db.runTransaction(async tx=>{
         const loteSnap=await tx.get(loteRef);
         if(!loteSnap.exists) throw new Error('El lote ya no existe');
         const currentLote=loteSnap.data();
-        const existingSnap=await tx.get(colPalets.where('produccionId','==',String(lote.id)));
-        const existingIds=existingSnap.docs.map(d=>d.id);
+        const existingIds=[...new Set([...(currentLote.paletIds||[]).map(String),...legacyExistingIds.map(String)])];
         const refs=existingIds.map(id=>colPalets.doc(id));
         const snaps=[]; for(const ref of refs) snaps.push(await tx.get(ref));
         const actuales=snaps.filter(s=>s.exists).map(s=>s.data());
@@ -513,7 +520,7 @@
     const cad=palets.filter(x=>x.estado!=='cargado'&&cpCadDate(x)&&cpCadDate(x).getTime()<=lim&&cpCadDate(x).getTime()>=now).length;
     $('opsPedidosPend').textContent=pend.length; $('opsPickingPend').textContent=pickingPend; $('opsPalDisponible').textContent=disp.length; $('opsPalPreparando').textContent=prep.length; $('opsPalSinUb').textContent=sinUb.length; $('opsCad30').textContent=cad;
     const inc=[];
-    if(sinUb.length) inc.push(`<div class="cp-ops-row"><span>Palets sin ubicación física</span><span class="cp-ops-badge warn">${sinUb.length}</span></div>`);
+    if(sinUb.length) inc.push(`<button type="button" class="cp-ops-row cp-ops-link" onclick="cpOpsOpenPalets('__sin_ubicacion__')"><span>Palets sin ubicación física</span><span class="cp-ops-badge warn">${sinUb.length}</span></button>`);
     if(cad) inc.push(`<div class="cp-ops-row"><span>Palets con caducidad en ≤ 30 días</span><span class="cp-ops-badge warn">${cad}</span></div>`);
     const deficit=pend.filter(p=>cpPickingPendiente(p)>0 && cpPaletsCompatibles(p).filter(x=>(parseInt(x.cajas)||0)>0).reduce((a,x)=>a+(parseInt(x.cajas)||0),0)<cpPickingPendiente(p));
     if(deficit.length) inc.push(`<div class="cp-ops-row"><span>Pedidos con falta de stock para picking</span><span class="cp-ops-badge danger">${deficit.length}</span></div>`);
@@ -527,6 +534,7 @@
     let recent=[]; try{const ms=await colMovLogistica.orderBy('ts','desc').limit(20).get(); recent=ms.docs.map(d=>({...d.data(),id:d.id}));}catch(e){recent=Array.isArray(window._cpMovCache)?window._cpMovCache:[];}
     $('opsMovimientos').innerHTML=recent.length?`<table class="cp-ops-table"><thead><tr><th>Fecha</th><th>Palet</th><th>Acción</th><th>Pedido</th><th>Detalle</th></tr></thead><tbody>${recent.slice(0,20).map(m=>`<tr><td>${esc(m.fecha||'')}</td><td><b>${esc(m.paletId||'')}</b></td><td>${esc(m.accion||'')}</td><td>${esc(m.pedidoNum||'')}</td><td>${esc(m.detalle||((m.cajas!=null?m.cajas+' cajas':'')))}</td></tr>`).join('')}</tbody></table>`:'<div class="cp-ops-row">El historial reciente aparecerá aquí al registrar movimientos.</div>';
   };
+  window.cpOpsOpenPalets=function(estado){ cerrarOperaciones(); abrirPalets({estado:estado||''}); };
   window.cpOpsUbicaciones=function(){ $('cpUbicacionesScreen').classList.add('open'); cpRenderUbicaciones(); };
   window.cerrarUbicaciones=function(){ $('cpUbicacionesScreen').classList.remove('open'); };
   window.cpRenderUbicaciones=function(){

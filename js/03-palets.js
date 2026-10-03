@@ -314,7 +314,20 @@
     const box=$('cps-pedidos-carga'); if(!box)return;
     box.innerHTML=salidaPedidos.length ? salidaPedidos.map(id=>{const p=pedidoById(id), active=String(id)===String(salidaPedidoActivo); return `<div class="cp-p-chip" style="display:flex;align-items:center;gap:8px;${active?'border-color:#F0B400;':''}"><button type="button" class="cp-p-btn" onclick="cpActivarPedidoSalida('${esc(id)}')">${active?'▶ ':''}${esc(pedidoTxt(p))}</button><span style="flex:1;color:#77838e">${esc(p?.producto||'')} · ${esc(p?.productosExtra?.length?((p.productosExtra.length+1)+' artículos'):'1 artículo')}</span><button type="button" class="cp-p-btn danger" onclick="cpQuitarPedidoSalida('${esc(id)}')">Quitar</button></div>`;}).join(''):'<div style="padding:10px;color:#77838e">Añade uno o varios pedidos para preparar la carga del camión.</div>';
   }
-  window.cpAnadirPedidoSalida=function(){ const id=$('cps-pedido-add')?.value; if(!id)return; if(!salidaPedidos.some(x=>String(x)===String(id))){salidaPedidos.push(String(id));salidaPorPedido.set(String(id),{palets:[],picking:[]});} salidaPedidoActivo=String(id); cpCargarPreparacion(id); $('cps-pedido').value=id; cpRenderPedidosCarga(); cpSalidaPedidoChange(true); $('cps-pedido-add').value=''; };
+  window.cpAnadirPedidoSalida=async function(){
+    const id=$('cps-pedido-add')?.value;if(!id)return;
+    if(salidaPedidos.some(x=>String(x)===String(id))){toast('ℹ️ Ese pedido ya está en esta carga');return;}
+    const p=pedidoById(id);if(!p)return;
+    if(String(p.status)==='cargado'){toast('⛔ El pedido '+(p.num||id)+' ya está cargado y no puede repetirse');return;}
+    try{
+      const previo=(salidasPalets||[]).find(x=>String(x.pedidoId)===String(id));
+      if(previo){toast('⛔ El pedido '+(p.num||id)+' ya pertenece al Packing List '+(previo.cargaId||previo.id));return;}
+      const snap=await colSalidasPalets.where('pedidoId','==',String(id)).limit(1).get();
+      if(!snap.empty){toast('⛔ El pedido '+(p.num||id)+' ya tiene un Packing List creado');return;}
+      if((p.cargasHistorial||[]).length && String(p.status)==='cargado'){toast('⛔ El pedido '+(p.num||id)+' ya tiene cargas registradas');return;}
+      salidaPedidos.push(String(id));salidaPorPedido.set(String(id),{palets:[],picking:[]});salidaPedidoActivo=String(id);cpCargarPreparacion(id);$('cps-pedido').value=id;cpRenderPedidosCarga();cpSalidaPedidoChange(true);$('cps-pedido-add').value='';
+    }catch(e){console.error('Comprobación Packing List:',e);toast('❌ No se pudo comprobar si el pedido ya estaba cargado');}
+  };
   window.cpActivarPedidoSalida=function(id){ cpGuardarPreparacionActiva(); salidaPedidoActivo=String(id); cpCargarPreparacion(id); $('cps-pedido').value=id; cpRenderPedidosCarga(); cpSalidaPedidoChange(true); };
   window.cpQuitarPedidoSalida=function(id){ cpGuardarPreparacionActiva(); salidaPedidos=salidaPedidos.filter(x=>String(x)!==String(id)); salidaPorPedido.delete(String(id)); if(String(salidaPedidoActivo)===String(id)){salidaPedidoActivo=salidaPedidos[0]||'';cpCargarPreparacion(salidaPedidoActivo);$('cps-pedido').value=salidaPedidoActivo;} cpRenderPedidosCarga(); cpSalidaPedidoChange(true); };
   window.cpNuevaSalida=function(){ salidaPalets=[]; salidaPicking=[]; salidaPedidos=[]; salidaPedidoActivo=''; salidaPorPedido=new Map(); salidaCargaId='C'+Date.now().toString(36).toUpperCase(); cpPedidoOptions('cps-pedido-add',false); $('cps-pedido').innerHTML='<option value="">Añade un pedido</option>'; ['cps-cliente','cps-muelle','cps-trans','cps-tractora','cps-remolque'].forEach(id=>$(id).value=''); if($('cps-carga-num'))$('cps-carga-num').value=String((parseInt(localStorage.getItem('cargasProUltimaCarga')||'0')||0)+1); if($('cps-modo'))$('cps-modo').value='palet'; cpRenderPedidosCarga(); $('cps-info').textContent='Añade uno o varios pedidos para preparar la carga.'; $('cps-lista').innerHTML=''; $('cps-picking').innerHTML=''; $('cpSalidaModal').classList.add('open'); cpModoSalidaChange(); setTimeout(()=>$('cps-pedido-add')?.focus(),100); };
@@ -401,7 +414,7 @@
     const loadedSnap=await colPalets.where('pedidoId','==',String(p.id)).where('estado','==','cargado').get();
     const loadedBefore=loadedSnap.docs.map(d=>d.data());
     try{ await db.runTransaction(async tx=>{
-      const orderRef=col.doc(String(p.id)), orderSnap=await tx.get(orderRef); if(!orderSnap.exists)throw new Error('El pedido ya no existe'); const current=orderSnap.data();
+      const orderRef=col.doc(String(p.id)), orderSnap=await tx.get(orderRef); if(!orderSnap.exists)throw new Error('El pedido ya no existe'); const current=orderSnap.data(); if(String(current.status)==='cargado')throw new Error('El pedido ya está cargado y no puede incluirse otra vez en un Packing List');
       const refs=[...ids.map(id=>colPalets.doc(id)),...pickingLocal.map(r=>colPalets.doc(r.paletId))]; const uniqueRefs=[...new Map(refs.map(r=>[r.path,r])).values()]; const snaps=[]; for(const ref of uniqueRefs)snaps.push(await tx.get(ref));
       const byId=new Map(snaps.filter(s=>s.exists).map(s=>[s.id,s.data()]));
       const selected=[]; for(const id of ids){const x=byId.get(id);if(!x)throw new Error('Palet inexistente: '+id);if(x.pedidoId&&String(x.pedidoId)!==String(p.id))throw new Error('Palet '+id+' no pertenece al pedido');if(!['disponible','reservado','preparando'].includes(x.estado))throw new Error('Palet '+id+' ya no está disponible');if(!cpPaletEncajaEnPedido(x,current))throw new Error('Producto/formato incompatible en '+id);selected.push(x);}

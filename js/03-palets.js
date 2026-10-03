@@ -26,7 +26,7 @@
   window.abrirPalets = function(){
     $('cpPaletsScreen').classList.add('open');
     document.body.style.overflow='hidden';
-    cpRenderPalets();
+    cpPalTab(window._cpPalTab||'palets'); cpRenderPalets();
   };
   window.cerrarPalets = function(){ $('cpPaletsScreen').classList.remove('open'); document.body.style.overflow=''; cpCerrarCamara(); };
 
@@ -65,8 +65,20 @@
     w.document.close();
   };
 
+  window.cpPalTab=function(t){
+    const packs=t==='packs';
+    if($('cpPanelPalets'))$('cpPanelPalets').style.display=packs?'none':'';
+    if($('cpPanelPacks'))$('cpPanelPacks').style.display=packs?'':'none';
+    if($('cpTabPalets'))$('cpTabPalets').className='cp-p-btn'+(packs?'':' primary');
+    if($('cpTabPacks'))$('cpTabPacks').className='cp-p-btn'+(packs?' primary':'');
+    window._cpPalTab=t; cpRenderSalidas();
+  };
   window.cpRenderSalidas = function(){
-    const el=$('cpSalidasLista'); if(!el) return;
+    const el=$('cpSalidasLista'); const cnt=$('cpPacksCount');
+    if(cnt) cnt.textContent=window._salidasErr?'!':(window._salidasListo?(new Set(salidasPalets.map(s=>s.cargaId||s.id))).size:'…');
+    if(!el) return;
+    if(window._salidasErr){ el.innerHTML='<div style="padding:16px;border:1px solid #d33;background:#fdecec;color:#900;border-radius:6px"><b>No se pueden leer los Packing Lists</b><br>'+esc(window._salidasErr)+'<br><small>Si pone "permission-denied", hay que permitir lectura de la colección <code>salidas_palets</code> en las reglas de Firestore.</small></div>'; return; }
+    if(!window._salidasListo){ el.innerHTML='<div style="padding:20px;text-align:center;color:#7a8794">Cargando Packing Lists…</div>'; return; }
     const q=up($('cpPalBusca')?.value);
     const ms=s=>createdValue(s.createdAt)||Date.parse(s.confirmedAt||'')||Date.now();
     const rows=salidasPalets.filter(s=>!q||[s.id,s.cargaId,s.pedidoNum,s.cliente,s.transportista,s.muelle,s.tractora,s.remolque,(s.palets||[]).join(' ')].join(' ').toUpperCase().includes(q));
@@ -80,6 +92,7 @@
   };
 
   window.cpRenderPalets = function(){
+    try{ cpRenderSalidas(); }catch(e){ console.error('cpRenderSalidas',e); }
     const q=up($('cpPalBusca')?.value), st=$('cpPalEstado')?.value||'', pid=$('cpPalPedido')?.value||'';
     cpPedidoOptions('cpPalPedido',true); if($('cpPalPedido')) $('cpPalPedido').value=pid;
     const counts={disponible:0,reservado:0,preparando:0,cargado:0};
@@ -97,7 +110,6 @@
       const prodLabel=mixto?'MIXTO':(x.producto||'');
       return `<tr><td><span class="cp-p-code">${esc(x.id)}</span>${x.sscc?`<div style="font-size:9px;color:#74808b">SSCC ${esc(x.sscc)}</div>`:''}</td><td>${esc(x.pedidoNum||'STOCK')}<div style="font-size:10px;color:#73808c">${esc(x.cliente||'')}</div></td><td><b>${esc(prodLabel)}</b><div style="font-size:10px;color:#73808c">${esc(x.formato||'')}</div></td><td>${cont}</td><td>${esc(x.lote||'—')}</td><td>${esc(x.ubicacion||'—')}</td><td><span class="cp-p-status ${esc(x.estado||'')}">${esc(palletStatusLabel(x.estado))}</span></td><td><button class="cp-p-btn" onclick="cpImprimirEtiqueta('${esc(x.id)}')">🏷️</button> <button class="cp-p-btn" onclick="cpCambiarUbicacion('${esc(x.id)}')">📍</button> <button class="cp-p-btn" onclick="cpVerPalet('${esc(x.id)}')">Ver</button> <button class="cp-p-btn" onclick="cpEditarPalet('${esc(x.id)}')">✏️ Editar</button> <button class="cp-p-btn danger" onclick="cpBorrarPalet('${esc(x.id)}')">🗑️ Borrar</button></td></tr>`;
     }).join('')}</tbody></table>`:'<div style="padding:35px;text-align:center;color:#7a8794">No hay palets que coincidan con los filtros.</div>';
-    cpRenderSalidas();
   };
 
   function cpPedidoLineaOptions(p){
@@ -422,7 +434,7 @@
     window._cpCargaMulti=true;
     try{
       for(const id of salidaPedidos){ window._cpOrdenCarga=salidaPedidos.indexOf(id)+1; $('cps-pedido').value=id; salidaPedidoActivo=String(id); cpCargarPreparacion(id); await cpConfirmarSalidaPedido(); ok++; }
-      localStorage.setItem('cargasProUltimaCarga',String(numero)); cpCerrarSalida(); toast('🚚 Carga '+numero+' confirmada · '+ok+'/'+total+' pedidos');
+      localStorage.setItem('cargasProUltimaCarga',String(numero)); cpCerrarSalida(); try{ if($('cpPaletsScreen')&&!$('cpPaletsScreen').classList.contains('open')) abrirPalets(); cpPalTab('packs'); }catch(_){} toast('🚚 Carga '+numero+' confirmada · '+ok+'/'+total+' pedidos');
     }catch(e){ toast('❌ La carga se detuvo tras '+ok+'/'+total+' pedidos: '+(e.message||e)); }
     finally{ window._cpCargaMulti=false; }
   };

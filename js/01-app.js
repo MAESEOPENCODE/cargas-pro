@@ -137,8 +137,9 @@ colPalets.onSnapshot((snap)=>{
 },(err)=>console.error('Firestore palets:',err));
 colSalidasPalets.onSnapshot((snap)=>{
   salidasPalets = snap.docs.map(d=>({...d.data(),id:d.id}));
-  if(document.getElementById('cpPaletsScreen')?.classList.contains('open')) window.cpRenderSalidas?.();
-},(err)=>console.error('Firestore salidas palets:',err));
+  window._salidasListo=true; window._salidasErr='';
+  window.cpRenderSalidas?.();
+},(err)=>{ console.error('Firestore salidas palets:',err); window._salidasErr=(err&&(err.code||err.message))||'error'; window.cpRenderSalidas?.(); });
 }
 
 // Disponible de un lote. Con cajasPorPalet se calcula en cajas totales y se reparte en palets + cajas sueltas.
